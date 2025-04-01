@@ -90,7 +90,7 @@ class FlashTool(QtWidgets.QMainWindow):
         
         self.log_output = QtWidgets.QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setLineWrapMode(QtWidgets.QTextEdit.WidgetWidth)
+        self.log_output.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.WidgetWidth)
         log_layout.addWidget(self.log_output)
         layout.addWidget(log_group)
         
