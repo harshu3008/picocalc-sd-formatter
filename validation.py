@@ -38,6 +38,10 @@ class SDCardValidator:
         if not os.path.exists(device):
             return False, f"Device does not exist: {device}"
             
+        # Check if device is a system device that should not be modified
+        if self.is_system_device(device):
+            return False, f"Device {device} appears to be a system disk. Operation aborted for safety."
+            
         # Check if device is removable
         try:
             if sys.platform == 'darwin':  # macOS
@@ -77,6 +81,73 @@ class SDCardValidator:
             return False, f"Failed to check device removability: {str(e)}"
             
         return True, "Device validation passed"
+
+    def is_system_device(self, device: str) -> bool:
+        """Check if a device is a system disk that should not be modified"""
+        try:
+            if sys.platform == 'darwin':  # macOS
+                # Get the boot disk identifier
+                result = subprocess.run(
+                    ['diskutil', 'info', '-plist', 'disk0'], 
+                    capture_output=True, text=True, check=True
+                )
+                import plistlib
+                disk_info = plistlib.loads(result.stdout.encode('utf-8'))
+                
+                # Check if this is the boot disk
+                device_name = os.path.basename(device)
+                if device_name == 'disk0' or device_name.startswith('disk0s'):
+                    return True
+                    
+                # Alternative check using mount points
+                result = subprocess.run(
+                    ['df', '/'], 
+                    capture_output=True, text=True, check=True
+                )
+                if device in result.stdout:
+                    return True
+                
+            elif sys.platform.startswith('linux'):  # Linux
+                # Check if device is the root disk or contains root partition
+                
+                # Get the root device
+                result = subprocess.run(
+                    ['lsblk', '-no', 'PKNAME', '-l', '/dev/root'], 
+                    capture_output=True, text=True, check=False
+                )
+                
+                # If /dev/root doesn't work, try df
+                if result.returncode != 0:
+                    result = subprocess.run(
+                        ['df', '/'], 
+                        capture_output=True, text=True, check=True
+                    )
+                    
+                    lines = result.stdout.strip().split('\n')
+                    if len(lines) > 1:  # Skip header line
+                        root_device = lines[1].split()[0]
+                        # Extract the disk name (e.g., sda from /dev/sda1)
+                        disk_name = re.match(r'/dev/([a-z]+)[0-9]*', root_device)
+                        if disk_name:
+                            if f"/dev/{disk_name.group(1)}" == device:
+                                return True
+                else:
+                    # Use the result from lsblk
+                    system_disk = result.stdout.strip()
+                    if system_disk and f"/dev/{system_disk}" == device:
+                        return True
+                
+                # Check specifically for well-known system devices
+                well_known_system_devices = ['/dev/sda', '/dev/nvme0n1', '/dev/mmcblk0']
+                if device in well_known_system_devices:
+                    return True
+                    
+        except Exception as e:
+            logger.warning(f"Error checking if {device} is a system device: {str(e)}")
+            # If we can't determine, assume it's NOT a system device
+            # This is generally safer than blocking operations on unknown devices
+            
+        return False
 
     def validate_partition_sequence(self, device: str, total_size_mb: int) -> List[str]:
         """Generate and validate the exact partition sequence"""

@@ -371,5 +371,96 @@ Device     Boot Start       End   Sectors  Size Id Type
             success, message = self.validator.validate_partition_alignment("/dev/disk0")
             self.assertTrue(success, "Partition alignment should be valid with mocked output")
 
+    @patch('subprocess.run')
+    def test_system_device_detection(self, mock_run):
+        """Test system device detection prevents modifying system disks"""
+        # Setup different responses for different commands
+        def mock_command_responses(*args, **kwargs):
+            cmd = args[0]
+            if isinstance(cmd, list):
+                cmd = ' '.join(cmd)
+            
+            # macOS system disk check responses
+            if 'diskutil info -plist disk0' in cmd:
+                # Return info for system disk
+                mock_response = MagicMock()
+                mock_response.stdout = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>DeviceIdentifier</key>
+    <string>disk0</string>
+    <key>Internal</key>
+    <true/>
+    <key>SystemImage</key>
+    <true/>
+</dict>
+</plist>"""
+                mock_response.returncode = 0
+                return mock_response
+            
+            # df command for root filesystem
+            elif 'df /' in cmd:
+                mock_response = MagicMock()
+                mock_response.stdout = """Filesystem    512-blocks      Used Available Capacity   iused    ifree %iused  Mounted on
+/dev/disk0s1  1953595632 836340904 987254728    46% 104543613 123406841   46%   /
+"""
+                mock_response.returncode = 0
+                return mock_response
+            
+            # Linux system disk check responses
+            elif 'lsblk -no PKNAME -l /dev/root' in cmd:
+                mock_response = MagicMock()
+                mock_response.stdout = "sda\n"
+                mock_response.returncode = 0
+                return mock_response
+            
+            # Default response for other commands
+            mock_response = MagicMock()
+            mock_response.stdout = ""
+            mock_response.returncode = 0
+            return mock_response
+        
+        # Set up our mock to use the command responses function
+        mock_run.side_effect = mock_command_responses
+        
+        # Test macOS system disk detection
+        if sys.platform == 'darwin':
+            self.assertTrue(
+                self.validator.is_system_device('/dev/disk0'),
+                "Should detect disk0 as system device on macOS"
+            )
+            self.assertTrue(
+                self.validator.is_system_device('/dev/disk0s1'),
+                "Should detect disk0s1 as system device on macOS"
+            )
+            self.assertFalse(
+                self.validator.is_system_device('/dev/disk1'),
+                "Should not flag disk1 as system device on macOS"
+            )
+            
+        # Test Linux system disk detection
+        elif sys.platform.startswith('linux'):
+            self.assertTrue(
+                self.validator.is_system_device('/dev/sda'),
+                "Should detect sda as system device on Linux"
+            )
+            self.assertFalse(
+                self.validator.is_system_device('/dev/sdb'),
+                "Should not flag sdb as system device on Linux"
+            )
+            
+        # Test validation with system device
+        if sys.platform == 'darwin':
+            with patch('os.path.exists', return_value=True):
+                success, message = self.validator.validate_device('/dev/disk0')
+                self.assertFalse(success, "Should reject system disk")
+                self.assertIn("system disk", message, "Error should mention system disk")
+        elif sys.platform.startswith('linux'):
+            with patch('os.path.exists', return_value=True):
+                success, message = self.validator.validate_device('/dev/sda')
+                self.assertFalse(success, "Should reject system disk")
+                self.assertIn("system disk", message, "Error should mention system disk")
+
 if __name__ == '__main__':
     unittest.main() 
