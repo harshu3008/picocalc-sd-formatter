@@ -13,10 +13,13 @@ jobs:
         include:
           - os: windows-latest
             executable: PicoCalc-SD-Formatter.exe
+            asset_name: PicoCalc-SD-Formatter-Windows.exe
           - os: macos-latest
             executable: PicoCalc-SD-Formatter.app
+            asset_name: PicoCalc-SD-Formatter-macOS.zip
           - os: ubuntu-latest
             executable: PicoCalc-SD-Formatter
+            asset_name: PicoCalc-SD-Formatter-Linux
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -62,6 +65,13 @@ jobs:
       run: |
         python build.py
 
+    - name: Package macOS App
+      if: matrix.os == 'macos-latest'
+      run: |
+        cd dist
+        zip -r PicoCalc-SD-Formatter-macOS.zip PicoCalc-SD-Formatter.app
+        cd ..
+
     - name: Debug build output
       shell: bash
       run: |
@@ -73,54 +83,16 @@ jobs:
         else
           echo "build directory does not exist"
         fi
-        echo "Contents of release directory (if exists):"
-        if [ -d "release" ]; then
-          ls -la release/
-        else
-          echo "release directory does not exist"
-        fi
         echo "Contents of current directory:"
         ls -la
 
-    - name: Verify build output
-      shell: bash
-      run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          if [ -f "dist/${{ matrix.executable }}" ]; then
-            echo "Windows executable found at dist/${{ matrix.executable }}"
-          else
-            echo "Windows executable not found at dist/${{ matrix.executable }}"
-            echo "Searching for executable in dist directory:"
-            find dist -type f -name "*.exe" || echo "No .exe files found"
-            exit 1
-          fi
-        elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-          if [ -d "dist/${{ matrix.executable }}" ]; then
-            echo "macOS app bundle found at dist/${{ matrix.executable }}"
-          else
-            echo "macOS app bundle not found at dist/${{ matrix.executable }}"
-            echo "Searching for app bundle in dist directory:"
-            find dist -type d -name "*.app" || echo "No .app bundles found"
-            exit 1
-          fi
-        else
-          if [ -f "dist/${{ matrix.executable }}" ]; then
-            echo "Linux executable found at dist/${{ matrix.executable }}"
-          else
-            echo "Linux executable not found at dist/${{ matrix.executable }}"
-            echo "Searching for executable in dist directory:"
-            find dist -type f -executable || echo "No executable files found"
-            exit 1
-          fi
-        fi
-
-    - name: Upload executable files
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: executables-${{ matrix.os }}
-        path: dist/
-        if-no-files-found: warn
-        retention-days: 5
+        name: ${{ matrix.asset_name }}
+        path: |
+          ${{ matrix.os == 'macos-latest' && 'dist/PicoCalc-SD-Formatter-macOS.zip' || format('dist/{0}', matrix.executable) }}
+        if-no-files-found: error
 
   release:
     needs: build
@@ -138,81 +110,44 @@ jobs:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
-        path: dist
-        merge-multiple: true
+        path: artifacts
+        merge-multiple: false
 
     - name: Display structure of downloaded files
       shell: bash
       run: |
-        echo "Contents of dist directory:"
-        ls -la dist/
-        echo "All files in dist directory (recursive):"
-        find dist -type f | sort
-        echo "All directories in dist directory:"
-        find dist -type d | sort
+        echo "Contents of artifacts directory:"
+        ls -la artifacts/
+        echo "All files in artifacts directory (recursive):"
+        find artifacts -type f | sort
 
     - name: Get release notes
       id: get_release_notes
       run: |
-        # Get the tag name
         TAG_NAME=${GITHUB_REF#refs/tags/}
-        
-        # Get the previous tag
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
         
-        # Generate release notes
         if [ -n "$PREVIOUS_TAG" ]; then
           RELEASE_NOTES=$(git log --pretty=format:"* %s" $PREVIOUS_TAG..$TAG_NAME)
         else
           RELEASE_NOTES=$(git log --pretty=format:"* %s" $TAG_NAME)
         fi
         
-        {
-          echo "notes<<EOF"
-          echo "## Changes in $TAG_NAME"
-          echo ""
-          echo "$RELEASE_NOTES"
-          echo "EOF"
-        } >> $GITHUB_OUTPUT
+        echo "notes=$(echo "$RELEASE_NOTES" | jq -Rsa .)" >> "$GITHUB_OUTPUT"
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
-        body: ${{ steps.get_release_notes.outputs.notes }}
-        draft: false
-        prerelease: false
+      run: |
+        gh release create "${{ github.ref_name }}" \
+          --title "Release ${{ github.ref_name }}" \
+          --notes "${{ fromJson(steps.get_release_notes.outputs.notes) }}" \
+          --draft=false \
+          --prerelease=false \
+          artifacts/**/*
 
-    - name: Upload Release Assets
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/PicoCalc-SD-Formatter.exe
-        asset_name: PicoCalc-SD-Formatter-Windows.exe
-        asset_content_type: application/octet-stream
-
-    - name: Upload macOS Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/PicoCalc-SD-Formatter.app
-        asset_name: PicoCalc-SD-Formatter-macOS.app
-        asset_content_type: application/octet-stream
-
-    - name: Upload Linux Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/PicoCalc-SD-Formatter
-        asset_name: PicoCalc-SD-Formatter-Linux
-        asset_content_type: application/octet-stream
+    - name: Verify Release
+      run: |
+        echo "Release created successfully"
+        echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
