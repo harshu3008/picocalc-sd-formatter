@@ -137,7 +137,7 @@ class FlashTool(QtWidgets.QMainWindow):
             
             else:
                 logger.warning("Unsupported platform detected: %s", sys.platform)
-                self.log(f"Unsupported platform: {sys.platform}")
+                self.log("No removable devices found.")
                     
             if self.device_combo.count() == 0:
                 logger.info("No removable devices found after search.")
