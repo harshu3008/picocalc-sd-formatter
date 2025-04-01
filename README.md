@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/yourusername/picocalc-sd-formatter/releases)
+[![Build and Release](https://github.com/EngineerDogIta/picocalc-sd-formatter/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/EngineerDogIta/picocalc-sd-formatter/actions/workflows/build-and-release.yml)
 [![Powered by Cursor](https://img.shields.io/badge/Powered%20by-Cursor-blue?style=flat&logo=cursor&logoColor=white)](https://cursor.sh)
 
 A GUI tool for formatting SD cards for use with the PicoCalc device. This tool creates the correct partition layout required by the PicoCalc operating system.
