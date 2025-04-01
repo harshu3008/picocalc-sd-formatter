@@ -7,6 +7,8 @@ import plistlib  # Import plistlib for parsing diskutil output
 import logging  # Import the logging module
 from PyQt6 import QtWidgets, QtCore
 from validation import SDCardValidator, format_validation_results
+import threading
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +27,12 @@ class FlashTool(QtWidgets.QMainWindow):
         self.firmware_path = "fuzix.img"  # Default hardcoded path
         self.setWindowTitle("PicoCalc SD Flasher")
         self.setMinimumSize(500, 400)
+        
+        # Process tracking
+        self.current_process = None
+        self.process_running = False
+        self.abort_requested = False
+        
         logger.info("Setting up UI.")
         self.setup_ui()
         logger.info("Refreshing device list on startup.")
@@ -32,50 +40,80 @@ class FlashTool(QtWidgets.QMainWindow):
         logger.info("Initialization complete.")
 
     def setup_ui(self):
-        logger.debug("Setting up UI elements.")
+        """Set up the application user interface"""
         central_widget = QtWidgets.QWidget()
-        main_layout = QtWidgets.QVBoxLayout()
-
-        # Device selection
-        device_layout = QtWidgets.QHBoxLayout()
+        self.setCentralWidget(central_widget)
+        layout = QtWidgets.QVBoxLayout(central_widget)
+        
+        # Device selection group
+        device_group = QtWidgets.QGroupBox("Select Target Device")
+        device_layout = QtWidgets.QHBoxLayout(device_group)
+        
         self.device_combo = QtWidgets.QComboBox()
-        refresh_btn = QtWidgets.QPushButton("Refresh")
-        refresh_btn.clicked.connect(self.refresh_devices)
-        device_layout.addWidget(QtWidgets.QLabel("Select SD Card:"))
+        self.device_combo.setMinimumWidth(250)
+        self.refresh_btn = QtWidgets.QPushButton("Refresh")
+        self.refresh_btn.clicked.connect(self.refresh_devices)
+        
         device_layout.addWidget(self.device_combo)
-        device_layout.addWidget(refresh_btn)
-
-        # Firmware selection
-        firmware_layout = QtWidgets.QHBoxLayout()
-        self.firmware_label = QtWidgets.QLabel(self.firmware_path)
-        select_firmware_btn = QtWidgets.QPushButton("Select Image")
-        select_firmware_btn.clicked.connect(self.select_firmware)
-        firmware_layout.addWidget(QtWidgets.QLabel("Firmware:"))
+        device_layout.addWidget(self.refresh_btn)
+        layout.addWidget(device_group)
+        
+        # Firmware selection group
+        firmware_group = QtWidgets.QGroupBox("Select Firmware")
+        firmware_layout = QtWidgets.QHBoxLayout(firmware_group)
+        
+        self.firmware_label = QtWidgets.QLabel("fuzix.img")
+        self.select_btn = QtWidgets.QPushButton("Select Firmware")
+        self.select_btn.clicked.connect(self.select_firmware)
+        
         firmware_layout.addWidget(self.firmware_label)
-        firmware_layout.addWidget(select_firmware_btn)
-
+        firmware_layout.addWidget(self.select_btn)
+        layout.addWidget(firmware_group)
+        
+        # Progress group
+        progress_group = QtWidgets.QGroupBox("Operation Progress")
+        progress_layout = QtWidgets.QVBoxLayout(progress_group)
+        
+        # Add progress bar
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_status = QtWidgets.QLabel("Ready")
+        
+        progress_layout.addWidget(self.progress_status)
+        progress_layout.addWidget(self.progress_bar)
+        layout.addWidget(progress_group)
+        
         # Log output
+        log_group = QtWidgets.QGroupBox("Output Log")
+        log_layout = QtWidgets.QVBoxLayout(log_group)
+        
         self.log_output = QtWidgets.QTextEdit()
         self.log_output.setReadOnly(True)
-
-        # Control buttons
+        self.log_output.setLineWrapMode(QtWidgets.QTextEdit.WidgetWidth)
+        log_layout.addWidget(self.log_output)
+        layout.addWidget(log_group)
+        
+        # Action buttons
         button_layout = QtWidgets.QHBoxLayout()
+        
         self.start_btn = QtWidgets.QPushButton("Flash SD Card")
         self.start_btn.clicked.connect(self.flash_card)
+        
         self.abort_btn = QtWidgets.QPushButton("Abort")
         self.abort_btn.clicked.connect(self.abort_process)
+        self.abort_btn.setEnabled(False)  # Disabled initially
+        
         button_layout.addWidget(self.start_btn)
         button_layout.addWidget(self.abort_btn)
-
-        # Add all layouts to main layout
-        main_layout.addLayout(device_layout)
-        main_layout.addLayout(firmware_layout)
-        main_layout.addWidget(self.log_output)
-        main_layout.addLayout(button_layout)
-
-        central_widget.setLayout(main_layout)
-        self.setCentralWidget(central_widget)
-        logger.debug("UI setup complete.")
+        layout.addLayout(button_layout)
+        
+        # Set stretch factors
+        layout.setStretch(2, 1)  # Make log output take available space
+        
+        # Initial log
+        self.log("Welcome to PicoCalc SD Flashing Tool")
+        self.log("Please select a target device and firmware image")
 
     def log(self, message):
         """Append message to log output widget and log to file."""
@@ -190,15 +228,18 @@ class FlashTool(QtWidgets.QMainWindow):
         # Run validation checks
         validator = SDCardValidator()
         self.log("Running validation checks...")
+        self.update_progress(5, "Validating device and firmware")
         
         # Get device size in MB
         try:
             total_size_mb = self.get_device_size_mb(device)
             if total_size_mb <= 0:
                 self.log(f"Error: Invalid device size detected")
+                self.update_progress(0, "Error: Invalid device size")
                 return
         except Exception as e:
             self.log(f"Error getting device size: {str(e)}")
+            self.update_progress(0, "Error: Failed to get device size")
             return
             
         validation_results = validator.validate_all(device, total_size_mb, self.firmware_path)
@@ -207,11 +248,14 @@ class FlashTool(QtWidgets.QMainWindow):
         # Check if any validation failed
         if not all(success for success, _ in validation_results.values()):
             self.log("Validation failed. Please fix the issues before proceeding.")
+            self.update_progress(0, "Validation failed")
             return
             
         # Check for write protection
+        self.update_progress(10, "Checking write protection")
         if not self.check_write_protection(device):
             self.log("Error: Device appears to be write-protected. Cannot proceed.")
+            self.update_progress(0, "Error: Device is write-protected")
             return
             
         # Show destructive operation warning
@@ -226,15 +270,18 @@ class FlashTool(QtWidgets.QMainWindow):
         
         if reply == QtWidgets.QMessageBox.StandardButton.No:
             self.log("Operation cancelled by user.")
+            self.update_progress(0, "Operation cancelled")
             return
             
         self.log("Starting flash process...")
         self.start_btn.setEnabled(False)
+        self.abort_btn.setEnabled(True)  # Enable abort button during operation
         logger.debug("UI disabled during flash process.")
 
         try:
             # Step 1: Partitioning
             logger.info("Step 1: Partitioning %s", device)
+            self.update_progress(15, "Unmounting device")
             self.log(f"Unmounting {device} if mounted...")
             if sys.platform == 'darwin':
                 self.run_command(f"diskutil unmountDisk {device}", check_return_code=False)
@@ -242,14 +289,19 @@ class FlashTool(QtWidgets.QMainWindow):
                 self.run_command(f"sudo umount {device}?* || true", check_return_code=False)
 
             # Get partition sequence from validator
+            self.update_progress(20, "Creating partitions")
             partition_commands = validator.validate_partition_sequence(device, total_size_mb)
             
-            for cmd in partition_commands:
+            # Run each partition command with progress updates
+            for i, cmd in enumerate(partition_commands):
+                progress = 20 + (i * 5)
+                self.update_progress(progress, f"Partitioning: step {i+1}/3")
                 self.log(f"Running: {cmd}")
                 self.run_command(cmd)
 
             # Step 2: Formatting
             logger.info("Step 2: Formatting partitions on %s", device)
+            self.update_progress(35, "Formatting FAT32 partition")
             self.log("Formatting FAT32 partition...")
             fat_partition = validator.get_partition_device(device, 1)
             
@@ -261,12 +313,14 @@ class FlashTool(QtWidgets.QMainWindow):
             # Step 3: Flashing firmware
             linux_partition = validator.get_partition_device(device, 2)
             logger.info("Step 3: Flashing firmware to %s", linux_partition)
+            self.update_progress(50, "Flashing firmware")
             self.log(f"Flashing firmware '{os.path.basename(self.firmware_path)}' to {linux_partition}...")
-            self.run_command(
-                f"sudo dd if='{self.firmware_path}' of='{linux_partition}' bs=4M status=progress"
-            )
             
-            # Step 4: Verify checksum (new)
+            # Run DD command with progress updates
+            self.run_dd_with_progress(self.firmware_path, linux_partition)
+            
+            # Step 4: Verify checksum
+            self.update_progress(90, "Verifying checksum")
             self.log("Verifying flashed image with checksum validation...")
             checksum_success, checksum_message = validator.verify_image_checksum(
                 self.firmware_path, device, 2
@@ -274,9 +328,11 @@ class FlashTool(QtWidgets.QMainWindow):
             
             if checksum_success:
                 self.log("Checksum verification successful! Image flashed correctly.")
+                self.update_progress(100, "Flash completed successfully")
             else:
                 self.log(f"Warning: {checksum_message}")
                 self.log("The SD card may not have been flashed correctly.")
+                self.update_progress(100, "Completed with verification warnings")
                 # Don't return, continue with final steps
 
             self.log("Flash completed successfully!")
@@ -284,9 +340,11 @@ class FlashTool(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error("Flashing error: %s", e, exc_info=True)
             self.log(f"Error during flash process: {str(e)}")
+            self.update_progress(0, "Error during flash process")
         finally:
             self.start_btn.setEnabled(True)
-    
+            self.abort_btn.setEnabled(False)  # Disable abort button when done
+
     def get_device_size_mb(self, device):
         """Get device size in MB using platform-specific methods"""
         if sys.platform == 'darwin':
@@ -354,7 +412,21 @@ class FlashTool(QtWidgets.QMainWindow):
                     text=True
                 )
                 
+            # Store reference to currently running process
+            self.current_process = process
+            self.process_running = True
+            
             stdout, stderr = process.communicate() # Wait for completion
+            
+            # Clear current process reference
+            self.current_process = None
+            self.process_running = False
+            
+            # Check if abort was requested and process completed anyway
+            if self.abort_requested:
+                self.abort_requested = False
+                logger.warning("Process completed despite abort request")
+                self.log("Process completed before abort could take effect.")
 
             if stdout:
                 logger.debug("Command stdout: %s", stdout.strip())
@@ -376,15 +448,65 @@ class FlashTool(QtWidgets.QMainWindow):
                  logger.info("Command finished (code %d): %s", process.returncode, cmd)
 
         except Exception as e:
+            # Clear process reference on exception
+            self.current_process = None
+            self.process_running = False
+            
             logger.error("Command execution failed '%s': %s", cmd, e, exc_info=True)
             self.log(f"Failed to execute command: {cmd}")
             raise # Re-raise the exception to be caught by flash_card
 
     def abort_process(self):
-        """Try to abort the current process"""
-        logger.warning("Abort requested by user (not fully implemented).")
-        self.log("Abort requested, but not implemented in this simple version.")
-        self.log("Please wait for current operation to complete.")
+        """Abort the current process"""
+        logger.warning("Abort requested by user.")
+        self.log("Attempting to abort the current operation...")
+        
+        if not self.process_running or self.current_process is None:
+            self.log("No process is currently running to abort.")
+            return
+        
+        self.abort_requested = True
+        
+        try:
+            # First try gentle termination
+            logger.info("Sending terminate signal to process.")
+            self.current_process.terminate()
+            
+            # Give it a moment to terminate gracefully
+            try:
+                self.current_process.wait(timeout=2)
+                self.log("Process terminated successfully.")
+                logger.info("Process terminated successfully.")
+            except subprocess.TimeoutExpired:
+                # If it doesn't terminate in time, kill it forcefully
+                logger.warning("Process did not terminate gracefully, forcing kill.")
+                self.log("Process did not respond to termination, forcing kill...")
+                self.current_process.kill()
+                try:
+                    self.current_process.wait(timeout=1)
+                    self.log("Process killed.")
+                    logger.info("Process killed.")
+                except subprocess.TimeoutExpired:
+                    self.log("Failed to kill process. It may still be running.")
+                    logger.error("Failed to kill process. It may still be running.")
+            
+            # Reset process state
+            self.current_process = None
+            self.process_running = False
+            
+            # Re-enable the UI elements that might have been disabled
+            self.start_btn.setEnabled(True)
+            
+            self.log("Operation aborted. Please check the device status before proceeding.")
+            logger.info("Process abortion procedure completed.")
+            
+        except Exception as e:
+            logger.error("Error aborting process: %s", e, exc_info=True)
+            self.log(f"Error while trying to abort: {str(e)}")
+            # Try to reset state anyway
+            self.current_process = None
+            self.process_running = False
+            self.start_btn.setEnabled(True)
 
     def check_write_protection(self, device):
         """Check if the device is write-protected"""
@@ -442,6 +564,111 @@ class FlashTool(QtWidgets.QMainWindow):
             self.log(f"Warning: Could not determine write protection status: {str(e)}")
             # Return True to allow operation to continue
             return True
+
+    def update_progress(self, value, status=None):
+        """Update progress bar and status text"""
+        self.progress_bar.setValue(value)
+        if status:
+            self.progress_status.setText(status)
+        # Force UI update
+        QtWidgets.QApplication.processEvents()
+        
+    def run_dd_with_progress(self, source, target):
+        """Run dd command with progress monitoring"""
+        # Get file size to calculate progress
+        source_size = os.path.getsize(source)
+        logger.info(f"Source file size: {source_size} bytes")
+        
+        # Create dd command with status reporting
+        if sys.platform == 'darwin':
+            # macOS version of dd doesn't have status=progress, use custom monitoring
+            cmd = f"sudo dd if='{source}' of='{target}' bs=4M"
+        else:
+            # Linux dd with status=progress
+            cmd = f"sudo dd if='{source}' of='{target}' bs=4M status=progress"
+        
+        # Set status
+        self.update_progress(50, "Writing to device")
+        
+        # For macOS, we need to manually monitor the progress
+        if sys.platform == 'darwin':
+            process = subprocess.Popen(
+                cmd, 
+                shell=True, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                text=True
+            )
+            
+            # Store reference to current process
+            self.current_process = process
+            self.process_running = True
+            
+            # Start a separate thread to monitor dd progress on macOS
+            monitor_thread = threading.Thread(
+                target=self._monitor_dd_progress, 
+                args=(process, source_size)
+            )
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            
+            # Wait for dd to complete
+            stdout, stderr = process.communicate()
+            
+            # Clear process reference
+            self.current_process = None
+            self.process_running = False
+            
+            # Log output
+            if stdout:
+                self.log(stdout.strip())
+            if stderr:
+                self.log(stderr.strip())
+            
+            # Check return code
+            if process.returncode != 0:
+                logger.error("DD command failed with return code %d", process.returncode)
+                self.log(f"DD command failed with return code: {process.returncode}")
+                raise Exception("DD command failed")
+        else:
+            # For Linux, use the standard run_command with status=progress
+            self.run_command(cmd)
+        
+        # Final progress update
+        self.update_progress(85, "DD write completed")
+
+    def _monitor_dd_progress(self, process, total_size):
+        """Monitor dd progress on macOS using periodic status checks"""
+        try:
+            while process.poll() is None and self.process_running:
+                if self.abort_requested:
+                    # Stop monitoring if abort was requested
+                    return
+                    
+                # Use pinfo to check how much has been written
+                try:
+                    # Get target device from process error output (hack)
+                    target_info = subprocess.check_output(
+                        f"ps -p {process.pid} -o command= | grep -o 'of=[^ ]*'",
+                        shell=True, text=True
+                    ).strip()
+                    
+                    if target_info:
+                        target = target_info.split('=')[1].strip("'\"")
+                        # Get current size of target
+                        if os.path.exists(target):
+                            current_size = os.path.getsize(target)
+                            # Calculate progress percentage
+                            progress = min(85, 50 + int((current_size / total_size) * 35))
+                            self.update_progress(progress, f"Writing: {current_size/1024/1024:.1f}MB of {total_size/1024/1024:.1f}MB")
+                except Exception as e:
+                    logger.debug(f"Error monitoring dd progress: {str(e)}")
+                    
+                # Sleep briefly before checking again
+                time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error in dd monitor thread: {str(e)}")
+            # Don't update UI directly from thread - could cause issues
 
 
 if __name__ == "__main__":
