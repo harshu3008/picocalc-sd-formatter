@@ -8,15 +8,21 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
+        cache: 'pip'
 
     - name: Install dependencies
       run: |
@@ -30,25 +36,55 @@ jobs:
         python build.py
 
     - name: Upload executable files
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: executables
         path: dist/
+        retention-days: 5
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
     - name: Download artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: executables
         path: dist
 
-    - name: Create release
+    - name: Get release notes
+      id: get_release_notes
+      run: |
+        # Get the tag name
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        
+        # Get the previous tag
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        # Generate release notes
+        if [ -n "$PREVIOUS_TAG" ]; then
+          RELEASE_NOTES=$(git log --pretty=format:"* %s" $PREVIOUS_TAG..$TAG_NAME)
+        else
+          RELEASE_NOTES=$(git log --pretty=format:"* %s" $TAG_NAME)
+        fi
+        
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+        echo "## Changes in $TAG_NAME" >> $GITHUB_ENV
+        echo "" >> $GITHUB_ENV
+        echo "$RELEASE_NOTES" >> $GITHUB_ENV
+        echo "EOF"
+
+    - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: dist/**
+        name: Release ${{ github.ref_name }}
+        body: ${{ env.RELEASE_NOTES }}
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
