@@ -6,12 +6,13 @@ import subprocess
 import plistlib  # Import plistlib for parsing diskutil output
 import logging  # Import the logging module
 from PyQt6 import QtWidgets, QtCore
+from validation import SDCardValidator, format_validation_results
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s',
-    filename='flash_tool.log',
+    filename='logs/flash_tool.log',
     filemode='w'  # Overwrite log file each time
 )
 logger = logging.getLogger(__name__)
@@ -185,11 +186,44 @@ class FlashTool(QtWidgets.QMainWindow):
 
         device = self.device_combo.currentData()
         logger.info("Target device selected: %s", device)
-        logger.warning("Data on %s will be erased.", device)
-        self.log(f"WARNING: This will ERASE ALL DATA on {device}!")
+        
+        # Run validation checks
+        validator = SDCardValidator()
+        self.log("Running validation checks...")
+        
+        # Get device size in MB
+        try:
+            total_size_mb = self.get_device_size_mb(device)
+            if total_size_mb <= 0:
+                self.log(f"Error: Invalid device size detected")
+                return
+        except Exception as e:
+            self.log(f"Error getting device size: {str(e)}")
+            return
+            
+        validation_results = validator.validate_all(device, total_size_mb, self.firmware_path)
+        self.log(format_validation_results(validation_results))
+        
+        # Check if any validation failed
+        if not all(success for success, _ in validation_results.values()):
+            self.log("Validation failed. Please fix the issues before proceeding.")
+            return
+            
+        # Show destructive operation warning
+        reply = QtWidgets.QMessageBox.warning(
+            self,
+            "Warning",
+            f"WARNING: This will ERASE ALL DATA on {device}!\n\n"
+            "Are you sure you want to continue?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.StandardButton.No:
+            self.log("Operation cancelled by user.")
+            return
+            
         self.log("Starting flash process...")
-
-        # Disable UI during flashing
         self.start_btn.setEnabled(False)
         logger.debug("UI disabled during flash process.")
 
@@ -197,87 +231,124 @@ class FlashTool(QtWidgets.QMainWindow):
             # Step 1: Partitioning
             logger.info("Step 1: Partitioning %s", device)
             self.log(f"Unmounting {device} if mounted...")
-            # Use run_command for consistency and logging
-            logger.debug("Attempting to unmount %s", device)
-            self.run_command(f"sudo umount {device}?* || true", check_return_code=False) # Allow failure if not mounted
-            logger.debug("Unmount command finished for %s", device)
+            if sys.platform == 'darwin':
+                self.run_command(f"diskutil unmountDisk {device}", check_return_code=False)
+            else:
+                self.run_command(f"sudo umount {device}?* || true", check_return_code=False)
 
-            self.log(f"Creating partition table on {device}...")
-            logger.debug("Running parted mklabel msdos on %s", device)
-            self.run_command(f"sudo parted -s {device} mklabel msdos")
-            logger.debug("Partition table created on %s", device)
-
-            self.log("Creating partitions...")
-            # Creating FAT32 partition
-            logger.info("Creating FAT32 partition on %s.", device)
-            self.run_command(
-                f"sudo parted -s {device} mkpart primary fat32 1MiB -33MiB"
-            )
-            logger.debug("FAT32 partition created on %s", device)
-             # Creating ext4 partition
-            logger.info("Creating ext4 partition on %s.", device)
-            self.run_command(f"sudo parted -s {device} mkpart primary ext4 -33MiB 100%")
-            logger.debug("Ext4 partition created on %s", device)
-            logger.info("Partitioning complete.")
+            # Get partition sequence from validator
+            partition_commands = validator.validate_partition_sequence(device, total_size_mb)
+            
+            for cmd in partition_commands:
+                self.log(f"Running: {cmd}")
+                self.run_command(cmd)
 
             # Step 2: Formatting
             logger.info("Step 2: Formatting partitions on %s", device)
             self.log("Formatting FAT32 partition...")
-            fat_partition = f"{device}p1" if sys.platform.startswith('linux') else f"{device}s1" # Adjust partition naming
-            logger.info("Formatting %s as FAT32.", fat_partition)
-            self.run_command(f"sudo mkfs.fat -F32 {fat_partition}")
-            logger.debug("Formatted %s as FAT32.", fat_partition)
-
-            self.log("Formatting ext4 partition...")
-            ext4_partition = f"{device}p2" if sys.platform.startswith('linux') else f"{device}s2" # Adjust partition naming
-            logger.info("Formatting %s as ext4.", ext4_partition)
-            self.run_command(f"sudo mkfs.ext4 -F {ext4_partition}")
-            logger.debug("Formatted %s as ext4.", ext4_partition)
-            logger.info("Formatting complete.")
+            fat_partition = validator.get_partition_device(device, 1)
+            
+            if sys.platform == 'darwin':
+                self.run_command(f"newfs_msdos -F 32 -v PicoCalc {fat_partition}")
+            else:
+                self.run_command(f"sudo mkfs.fat -F32 -v -I {fat_partition}")
 
             # Step 3: Flashing firmware
-            logger.info("Step 3: Flashing firmware to %s", ext4_partition)
-            self.log(f"Flashing firmware '{os.path.basename(self.firmware_path)}' to {ext4_partition}...")
-            logger.debug("Running dd command to flash %s", ext4_partition)
+            linux_partition = validator.get_partition_device(device, 2)
+            logger.info("Step 3: Flashing firmware to %s", linux_partition)
+            self.log(f"Flashing firmware '{os.path.basename(self.firmware_path)}' to {linux_partition}...")
             self.run_command(
-                f"sudo dd if='{self.firmware_path}' of='{ext4_partition}' bs=4M status=progress"
+                f"sudo dd if='{self.firmware_path}' of='{linux_partition}' bs=4M status=progress"
             )
-            logger.info("Firmware flashing complete.")
 
             self.log("Flash completed successfully!")
             logger.info("Flash process completed successfully.")
         except Exception as e:
             logger.error("Flashing error: %s", e, exc_info=True)
-            self.log(f"Error during flashing: {str(e)}")
+            self.log(f"Error during flash process: {str(e)}")
         finally:
-            # Re-enable UI
             self.start_btn.setEnabled(True)
-            logger.debug("UI re-enabled after flash process.")
+            
+    def get_device_size_mb(self, device):
+        """Get device size in MB using platform-specific methods"""
+        if sys.platform == 'darwin':
+            # Use diskutil info with plist format for reliable parsing
+            disk_id = os.path.basename(device)
+            result = subprocess.run(
+                ['diskutil', 'info', '-plist', disk_id], 
+                capture_output=True, text=True, check=True
+            )
+            
+            # Parse plist output
+            disk_info = plistlib.loads(result.stdout.encode('utf-8'))
+            size_bytes = disk_info.get('TotalSize', 0)
+        else:
+            # Use lsblk with machine-readable output
+            result = subprocess.run(
+                ['lsblk', '--bytes', '--output', 'SIZE', '--nodeps', '--noheadings', device], 
+                capture_output=True, text=True, check=True
+            )
+            size_bytes = int(result.stdout.strip())
+            
+        # Convert to MB
+        total_size_mb = size_bytes // (1024 * 1024)
+        return total_size_mb
 
     def run_command(self, cmd, check_return_code=True):
-        """Run a shell command and log output"""
+        """Run a shell command and log output with improved security"""
         logger.info("Executing command: %s", cmd)
         self.log(f"Running: {cmd}")
+        
+        # Handle privileged commands more securely
+        if cmd.startswith("sudo ") and sys.platform.startswith('linux'):
+            # Use pkexec if available which provides a GUI auth dialog on Linux
+            try:
+                # Check if pkexec is available
+                subprocess.run(["which", "pkexec"], check=True, capture_output=True)
+                # Replace sudo with pkexec
+                cmd = "pkexec " + cmd[5:]
+                logger.info("Using pkexec instead of sudo for: %s", cmd)
+            except subprocess.CalledProcessError:
+                # pkexec not available, warn user
+                logger.warning("pkexec not available, using sudo which may require terminal access")
+                # Continue with sudo
+        
         try:
-            # Use Popen to potentially stream output later if needed, but capture for now
-            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            # Avoid shell=True when not needed by splitting commands
+            # But some commands (like those with pipes or redirects) still need shell
+            needs_shell = any(c in cmd for c in '|>&;$')
+            
+            if needs_shell:
+                process = subprocess.Popen(
+                    cmd, 
+                    shell=True, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    text=True
+                )
+            else:
+                # Split command into args for more secure execution
+                cmd_args = cmd.split()
+                process = subprocess.Popen(
+                    cmd_args,
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    text=True
+                )
+                
             stdout, stderr = process.communicate() # Wait for completion
 
             if stdout:
-                # Log stdout as debug, keep showing in GUI via self.log
                 logger.debug("Command stdout: %s", stdout.strip())
-                self.log(stdout.strip()) # Show command output in GUI too
+                self.log(stdout.strip())
 
             if stderr:
                  # dd writes status to stderr, treat as info unless return code is non-zero
                 if "status=progress" in cmd and process.returncode == 0:
-                    # Log progress as info, don't clutter GUI unless needed
                     logger.info("Command progress: %s", stderr.strip())
-                    # self.log(f"Progress: {stderr.strip()}") # Optionally show progress in GUI
                 else:
-                    # Log actual errors as warning, show in GUI
                     logger.warning("Command stderr: %s", stderr.strip())
-                    self.log(f"Error output: {stderr.strip()}") # Show errors in GUI
+                    self.log(f"Error output: {stderr.strip()}")
 
             if check_return_code and process.returncode != 0:
                 logger.error("Command failed with return code %d: %s", process.returncode, cmd)
