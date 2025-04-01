@@ -138,58 +138,52 @@ class TestSDCardValidator(unittest.TestCase):
             # Restore the original validator
             self.validator = original_validator
 
-    @patch('hashlib.sha256')
     @patch('os.path.exists')
     @patch('os.path.getsize')
-    def test_image_checksum(self, mock_getsize, mock_exists, mock_sha256):
+    def test_image_checksum(self, mock_getsize, mock_exists):
         """Test checksum validation with mocks"""
-        # Configure mocks
-        mock_exists.return_value = True
-        mock_getsize.return_value = 1024  # Fake file size
+        # Configure mocks - both source file and target partition exist
+        mock_exists.return_value = True  # All paths exist for this test
         
-        # Mock hash objects for source and target
-        mock_source_hash = MagicMock()
-        mock_source_hash.hexdigest.return_value = "abc123"
+        # Set a small file size for faster tests
+        mock_getsize.return_value = 100
         
-        mock_target_hash = MagicMock()
-        mock_target_hash.hexdigest.return_value = "abc123"  # Same hash = success
+        # Use realistic hash values (SHA256 is 64 characters)
+        source_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        target_hash_matching = source_hash
+        target_hash_different = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
         
-        # Setup sha256 mock to return different hash objects
-        mock_sha256.side_effect = [mock_source_hash, mock_target_hash]
-        
-        # Patch the file open operations
-        with patch('builtins.open', create=True) as mock_open:
-            # Mock file objects
-            mock_source_file = MagicMock()
-            mock_target_file = MagicMock()
-            
-            # Configure read method to return data once then empty
-            mock_source_file.read.side_effect = [b"test data", b""]
-            mock_target_file.read.side_effect = [b"test data", b""]
-            
-            # Make open return different file objects depending on the path
-            def open_side_effect(path, *args, **kwargs):
-                if path == 'test_fuzix.img':
-                    return mock_source_file
-                else:
-                    return mock_target_file
-                    
-            mock_open.side_effect = open_side_effect
-            
-            # Test with matching checksums
-            success, message = self.validator.verify_image_checksum(
-                'test_fuzix.img', '/dev/sdb', 2
-            )
-            self.assertTrue(success, "Matching checksums should pass verification")
-            
-            # Test with different checksums
-            mock_target_hash.hexdigest.return_value = "def456"  # Different hash = fail
-            mock_sha256.side_effect = [mock_source_hash, mock_target_hash]
-            
-            success, message = self.validator.verify_image_checksum(
-                'test_fuzix.img', '/dev/sdb', 2
-            )
-            self.assertFalse(success, "Different checksums should fail verification")
+        # Patch the internal calculation methods directly
+        with patch.object(self.validator, '_calculate_file_sha256') as mock_file_sha:
+            with patch.object(self.validator, '_calculate_device_sha256') as mock_device_sha:
+                # Set return values for the internal methods
+                mock_file_sha.return_value = source_hash
+                mock_device_sha.return_value = target_hash_matching  # Matching checksums
+                
+                # Test with matching checksums
+                success, message = self.validator.verify_image_checksum(
+                    'test_fuzix.img', '/dev/sdb', 2
+                )
+                self.assertTrue(success, "Matching checksums should pass verification")
+                self.assertIn("checksums match", message)
+                
+                # Test with non-matching checksums
+                mock_device_sha.return_value = target_hash_different  # Different hash
+                
+                success, message = self.validator.verify_image_checksum(
+                    'test_fuzix.img', '/dev/sdb', 2
+                )
+                self.assertFalse(success, "Different checksums should fail verification")
+                self.assertIn("checksums don't match", message)
+                
+                # Test with calculation error
+                mock_device_sha.return_value = "calculation_failed"
+                
+                success, message = self.validator.verify_image_checksum(
+                    'test_fuzix.img', '/dev/sdb', 2
+                )
+                self.assertFalse(success, "Calculation failure should be detected")
+                self.assertIn("Failed to calculate", message)
 
     @patch('subprocess.run')
     def test_write_protection(self, mock_run):
