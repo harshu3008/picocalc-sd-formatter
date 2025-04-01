@@ -5,10 +5,11 @@ import os
 import subprocess
 import plistlib  # Import plistlib for parsing diskutil output
 import logging  # Import the logging module
-from PyQt6 import QtWidgets, QtCore
+from PyQt6 import QtWidgets, QtCore, QtGui
 from validation import SDCardValidator, format_validation_results
 import threading
 import time
+import urllib.request  # Add import for URL handling
 
 # Configure logging
 logging.basicConfig(
@@ -19,6 +20,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Official PicoCalc firmware images from GitHub repository
+OFFICIAL_FIRMWARE_IMAGES = {
+    "FUZIX": {
+        "name": "FUZIX OS",
+        "description": "Lightweight UNIX-like OS for minimal resource usage",
+        "path": "PicoCalc_FUZIX_v0.5.uf2",
+        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_FUZIX_v0.5.uf2"
+    },
+    "PicoMite": {
+        "name": "PicoMite BASIC",
+        "description": "BASIC language interpreter based on MMBasic",
+        "path": "PicoCalc_PicoMite_v0.5.uf2",
+        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_PicoMite_v0.5.uf2"
+    },
+    "NES": {
+        "name": "NES Emulator",
+        "description": "NES emulator for programming study",
+        "path": "PicoCalc_NES_v0.5.uf2",
+        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_NES_v0.5.uf2"
+    },
+    "uLisp": {
+        "name": "uLisp",
+        "description": "Lisp programming language for ARM-based boards",
+        "path": "PicoCalc_uLisp_v0.5.uf2",
+        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_uLisp_v0.5.uf2"
+    },
+    "MP3Player": {
+        "name": "MP3 Player",
+        "description": "Simple MP3 player based on YAHAL",
+        "path": "PicoCalc_MP3Player_v0.5.uf2",
+        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_MP3Player_v0.5.uf2"
+    }
+}
 
 class FlashTool(QtWidgets.QMainWindow):
     def __init__(self):
@@ -51,12 +85,65 @@ class FlashTool(QtWidgets.QMainWindow):
         
         self.device_combo = QtWidgets.QComboBox()
         self.device_combo.setMinimumWidth(250)
+        self.device_combo.setToolTip("Select the main disk device (e.g., /dev/disk4 on macOS or /dev/sdb on Linux)\n"
+                                   "not individual partitions. The tool will handle partitioning for you.")
         self.refresh_btn = QtWidgets.QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh_devices)
         
+        # Add help button for device selection
+        self.device_help_btn = QtWidgets.QPushButton("?")
+        self.device_help_btn.setMaximumWidth(30)
+        self.device_help_btn.clicked.connect(self.show_device_help)
+        self.device_help_btn.setToolTip("Get help with device selection")
+        
+        # Add debug button to show all disks
+        self.show_all_disks_btn = QtWidgets.QPushButton("Show All Disks")
+        self.show_all_disks_btn.clicked.connect(self.show_all_disks)
+        self.show_all_disks_btn.setToolTip("Show all available disks for debugging")
+        
         device_layout.addWidget(self.device_combo)
         device_layout.addWidget(self.refresh_btn)
+        device_layout.addWidget(self.device_help_btn)
+        device_layout.addWidget(self.show_all_disks_btn)
         layout.addWidget(device_group)
+        
+        # Add firmware download group
+        download_group = QtWidgets.QGroupBox("Download Official Firmware")
+        download_layout = QtWidgets.QVBoxLayout(download_group)
+        
+        # Add firmware list widget
+        self.firmware_list = QtWidgets.QListWidget()
+        self.firmware_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        
+        # Populate firmware list
+        for key, firmware in OFFICIAL_FIRMWARE_IMAGES.items():
+            item = QtWidgets.QListWidgetItem(f"{firmware['name']}")
+            item.setToolTip(firmware['description'])
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, key)
+            self.firmware_list.addItem(item)
+        
+        # Add buttons in horizontal layout
+        buttons_layout = QtWidgets.QHBoxLayout()
+        
+        # Add download button
+        self.download_btn = QtWidgets.QPushButton("Download Selected Firmware")
+        self.download_btn.clicked.connect(self.download_firmware)
+        
+        # Add download all button
+        self.download_all_btn = QtWidgets.QPushButton("Download All Firmware")
+        self.download_all_btn.clicked.connect(self.download_all_firmware)
+        
+        # Add scan GitHub button
+        self.scan_github_btn = QtWidgets.QPushButton("Scan GitHub for Firmware")
+        self.scan_github_btn.clicked.connect(self.scan_github_for_firmware)
+        
+        buttons_layout.addWidget(self.download_btn)
+        buttons_layout.addWidget(self.download_all_btn)
+        buttons_layout.addWidget(self.scan_github_btn)
+        
+        download_layout.addWidget(self.firmware_list)
+        download_layout.addLayout(buttons_layout)
+        layout.addWidget(download_group)
         
         # Firmware selection group
         firmware_group = QtWidgets.QGroupBox("Select Firmware")
@@ -109,7 +196,7 @@ class FlashTool(QtWidgets.QMainWindow):
         layout.addLayout(button_layout)
         
         # Set stretch factors
-        layout.setStretch(2, 1)  # Make log output take available space
+        layout.setStretch(3, 1)  # Make log output take available space
         
         # Initial log
         self.log("Welcome to PicoCalc SD Flashing Tool")
@@ -125,39 +212,97 @@ class FlashTool(QtWidgets.QMainWindow):
     def refresh_devices(self):
         """Get list of block devices that might be SD cards"""
         logger.info("Starting device refresh.")
+        
+        # Temporarily disconnect the signal to prevent triggering the manual input
+        self.device_combo.currentIndexChanged.disconnect() if self.device_combo.receivers(self.device_combo.currentIndexChanged) > 0 else None
+        
         self.device_combo.clear()
         self.log("Searching for removable devices...")
         
+        # Add a manual entry option at the top
+        self.device_combo.addItem("-- Enter device path manually --", "manual")
+        
         try:
+            # DEBUGGING: Log platform information
+            logger.info(f"Platform: {sys.platform}")
+            self.log(f"Platform detected: {sys.platform}")
+            
             if sys.platform == 'darwin':  # macOS
-                # Use diskutil to get external disks
-                output = subprocess.check_output(
-                    ['diskutil', 'list', '-plist', 'external'], 
-                    universal_newlines=True)
+                # DEBUGGING: Log all diskutil commands and outputs
+                self.log("======== DEBUGGING INFO START ========")
                 
-                disk_list = plistlib.loads(output.encode('utf-8'))
-                all_disks = disk_list.get('AllDisks', [])
+                # Get raw list output first (just for debugging)
+                try:
+                    raw_output = subprocess.check_output(
+                        ['diskutil', 'list'], 
+                        universal_newlines=True, stderr=subprocess.STDOUT)
+                    logger.debug(f"Raw diskutil list output:\n{raw_output}")
+                    self.log(f"Raw diskutil output:\n{raw_output}")
+                except Exception as e:
+                    logger.error(f"Failed to get raw diskutil output: {e}")
+                    self.log(f"Failed to get raw diskutil output: {e}")
                 
-                for disk_identifier in all_disks:
-                    try:
-                        # Get detailed info for each disk
-                        info_output = subprocess.check_output(
-                            ['diskutil', 'info', '-plist', disk_identifier],
-                            universal_newlines=True)
-                        disk_info = plistlib.loads(info_output.encode('utf-8'))
-                        
-                        if disk_info.get('RemovableMedia') or disk_info.get('Internal') == False:
-                            device_path = f"/dev/{disk_identifier}"
-                            size_bytes = disk_info.get('TotalSize', 0)
-                            size_gb = size_bytes / (1024**3) # Convert to GB
-                            label = disk_info.get('VolumeName', disk_identifier)
+                # Get external disk list for actual processing
+                try:
+                    # Try to list external disks first
+                    external_cmd = ['diskutil', 'list', 'external']
+                    logger.debug(f"Running command: {' '.join(external_cmd)}")
+                    external_output = subprocess.check_output(
+                        external_cmd, 
+                        universal_newlines=True, stderr=subprocess.STDOUT)
+                    logger.debug(f"External diskutil output:\n{external_output}")
+                    self.log(f"External disk output:\n{external_output}")
+                    
+                    # Parse the output for disk identifiers
+                    detected_disks = []
+                    for line in external_output.splitlines():
+                        line = line.strip()
+                        # Looking for lines like "/dev/disk4 (external, physical):"
+                        if line.startswith("/dev/disk") and "external" in line:
+                            disk_id = line.split()[0].replace("/dev/", "")
+                            logger.debug(f"Found external disk: {disk_id}")
+                            detected_disks.append(disk_id)
                             
-                            display_text = f"{label} ({size_gb:.2f} GB) - {device_path}"
-                            logger.debug("Found potential device: %s", display_text)
+                    self.log(f"Detected external disks: {detected_disks}")
+                    
+                    # Process each detected disk
+                    for disk_id in detected_disks:
+                        try:
+                            # Get disk info
+                            info_cmd = ['diskutil', 'info', '-plist', disk_id]  # Use plist format for reliable parsing
+                            logger.debug(f"Running command: {' '.join(info_cmd)}")
+                            info_output = subprocess.check_output(
+                                info_cmd,
+                                universal_newlines=True, stderr=subprocess.STDOUT)
+                                
+                            # Parse plist output
+                            disk_info = plistlib.loads(info_output.encode('utf-8'))
+                            
+                            # Get disk information
+                            device_path = f"/dev/{disk_id}"
+                            size_gb = disk_info.get('TotalSize', 0) / (1024 * 1024 * 1024)  # Convert to GB
+                            volume_name = disk_info.get('VolumeName', 'NO NAME')
+                            
+                            # Build display string and add to combo box
+                            display_text = f"{volume_name} ({size_gb:.1f} GB) - {device_path}"
+                            logger.debug(f"Adding device to combo box: {display_text}")
+                            self.log(f"Adding device: {display_text}")
                             self.device_combo.addItem(display_text, device_path)
-                    except Exception as detail_error:
-                        logger.error("Failed to get details for %s: %s", disk_identifier, detail_error, exc_info=True)
-                        self.log(f"Could not get info for {disk_identifier}: {detail_error}")
+                            
+                        except Exception as detail_error:
+                            logger.error(f"Failed to process disk {disk_id}: {detail_error}", exc_info=True)
+                            self.log(f"Error processing disk {disk_id}: {str(detail_error)}")
+                            
+                    # Check if we found any disks
+                    if not detected_disks:
+                        logger.warning("No external disks detected from diskutil output")
+                        self.log("No external disks detected")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to get external disk list: {e}", exc_info=True)
+                    self.log(f"Failed to get external disk list: {str(e)}")
+                    
+                self.log("======== DEBUGGING INFO END ========")
             
             elif sys.platform.startswith('linux'): # Linux
                 # Use lsblk to get removable devices
@@ -178,11 +323,11 @@ class FlashTool(QtWidgets.QMainWindow):
                 logger.warning("Unsupported platform detected: %s", sys.platform)
                 self.log("No removable devices found.")
                     
-            if self.device_combo.count() == 0:
+            if self.device_combo.count() <= 1: # Only the manual option
                 logger.info("No removable devices found after search.")
-                self.log("No removable devices found.")
+                self.log("No removable devices found. You can enter a device path manually or try 'Show All Disks'.")
             else:
-                logger.info("Found %d potential devices.", self.device_combo.count())
+                logger.info("Found %d potential devices.", self.device_combo.count() - 1) # Exclude manual option
                 
         except FileNotFoundError as fnf_error:
             if 'diskutil' in str(fnf_error) or 'lsblk' in str(fnf_error):
@@ -195,6 +340,42 @@ class FlashTool(QtWidgets.QMainWindow):
             logger.error("Device detection error: %s", e, exc_info=True)
             self.log(f"Error detecting devices: {str(e)}")
         logger.info("Device refresh finished.")
+        
+        # Reconnect the signal after populating the combo box
+        self.device_combo.currentIndexChanged.connect(self.on_device_selection_changed)
+
+    def on_device_selection_changed(self, index):
+        """Handle device selection changes"""
+        if index >= 0:
+            device = self.device_combo.currentData()
+            if device == "manual":
+                self.prompt_for_device_path()
+                
+    def prompt_for_device_path(self):
+        """Prompt the user to enter a device path manually"""
+        device_path, ok = QtWidgets.QInputDialog.getText(
+            self,
+            "Enter Device Path",
+            "Enter the full path to your SD card device\n(e.g., /dev/disk4 on macOS or /dev/sdb on Linux):"
+        )
+        
+        if ok and device_path:
+            # Verify that the path looks reasonable
+            if (sys.platform == 'darwin' and device_path.startswith('/dev/disk')) or \
+               (sys.platform.startswith('linux') and device_path.startswith('/dev/')):
+                # Add the manual device to the combo box
+                self.device_combo.clear()  # Remove the "Enter manually" option
+                display_text = f"MANUAL: {device_path}"
+                self.device_combo.addItem(display_text, device_path)
+                self.log(f"Manually selected device: {device_path}")
+            else:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid Device Path",
+                    f"The path '{device_path}' does not appear to be a valid device path."
+                )
+                # Reset to the manual option
+                self.refresh_devices()
 
     def select_firmware(self):
         """Open file dialog to select firmware image"""
@@ -213,6 +394,226 @@ class FlashTool(QtWidgets.QMainWindow):
             self.log(f"Selected firmware: {file_path}")
         else:
             logger.info("Firmware selection cancelled by user.")
+            
+    def _check_url_exists(self, url):
+        """Check if a URL exists and is accessible"""
+        try:
+            headers = {'User-Agent': 'PicoCalc-SD-Flasher/1.0'}
+            req = urllib.request.Request(url, headers=headers, method='HEAD')
+            with urllib.request.urlopen(req, timeout=5) as response:
+                return True
+        except Exception:
+            return False
+            
+    def download_firmware(self):
+        """Download selected firmware from GitHub repository"""
+        current_item = self.firmware_list.currentItem()
+        if not current_item:
+            self.log("Please select a firmware to download")
+            return
+            
+        # Get firmware info - could be a key or a dictionary depending on selection source
+        firmware_data = current_item.data(QtCore.Qt.ItemDataRole.UserRole)
+        
+        # Handle different firmware_info formats
+        if isinstance(firmware_data, str):
+            # This is a key from the predefined list
+            firmware_info = OFFICIAL_FIRMWARE_IMAGES[firmware_data]
+        else:
+            # This is a firmware_info dictionary from the GitHub scan
+            firmware_info = firmware_data
+        
+        # Check if URL exists before starting download
+        if not self._check_url_exists(firmware_info['url']):
+            self.log(f"Warning: The firmware URL seems to be unavailable: {firmware_info['url']}")
+            
+            # Show error dialog with option to open GitHub
+            msg_box = QtWidgets.QMessageBox()
+            msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            msg_box.setWindowTitle("Firmware URL Unavailable")
+            msg_box.setText(f"The firmware URL appears to be unavailable:\n{firmware_info['url']}")
+            msg_box.setInformativeText("Would you like to try anyway or open the GitHub repository in your browser to find the firmware manually?")
+            
+            try_anyway_btn = msg_box.addButton("Try Download Anyway", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+            open_github_btn = msg_box.addButton("Open GitHub Repository", QtWidgets.QMessageBox.ButtonRole.ActionRole)
+            cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+            
+            msg_box.exec()
+            
+            if msg_box.clickedButton() == open_github_btn:
+                self.open_github_repo()
+                return
+            elif msg_box.clickedButton() == cancel_btn:
+                return
+            # If they clicked Try Anyway, we continue with the download
+        
+        # Update status
+        self.log(f"Downloading {firmware_info['name']}...")
+        self.update_progress(0, f"Downloading {firmware_info['name']}")
+        
+        try:
+            # Create downloads directory if it doesn't exist
+            downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")
+            os.makedirs(downloads_dir, exist_ok=True)
+            
+            # Use the direct URL from the firmware_info dictionary
+            download_url = firmware_info['url']
+            
+            # Start download in a separate thread to avoid blocking UI
+            download_thread = threading.Thread(
+                target=self._download_firmware_thread,
+                args=(download_url, downloads_dir, firmware_info)
+            )
+            download_thread.daemon = True
+            download_thread.start()
+            
+        except Exception as e:
+            logger.error("Error starting download: %s", e, exc_info=True)
+            self.log(f"Error starting download: {str(e)}")
+            self.update_progress(0, "Download failed")
+
+    def _download_firmware_thread(self, url, download_dir, firmware_info):
+        """Handle firmware download in a separate thread"""
+        try:
+            # Download with progress tracking
+            local_filename = os.path.join(download_dir, firmware_info['path'])
+            logger.info(f"Attempting to download from: {url}")
+            logger.info(f"Target save location: {local_filename}")
+            
+            # Add a user agent to avoid some GitHub API restrictions
+            headers = {'User-Agent': 'PicoCalc-SD-Flasher/1.0'}
+            req = urllib.request.Request(url, headers=headers)
+            
+            try:
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    file_size = int(response.headers.get('Content-Length', 0))
+                    
+                    if file_size == 0:
+                        raise ValueError("File size is 0 or Content-Length header is missing")
+                    
+                    with open(local_filename, 'wb') as f:
+                        downloaded = 0
+                        block_size = 8192
+                        
+                        while True:
+                            buffer = response.read(block_size)
+                            if not buffer:
+                                break
+                                
+                            downloaded += len(buffer)
+                            f.write(buffer)
+                            
+                            # Update progress - use QueuedConnection to safely update from another thread
+                            progress = int((downloaded / file_size) * 100) if file_size > 0 else 0
+                            status_msg = f"Downloading: {progress}%"
+                            
+                            # Use the signal/slot mechanism for thread-safe UI updates
+                            QtCore.QMetaObject.invokeMethod(
+                                self, 
+                                "update_progress_from_thread", 
+                                QtCore.Qt.ConnectionType.QueuedConnection,
+                                QtCore.Q_ARG(int, progress),
+                                QtCore.Q_ARG(str, status_msg)
+                            )
+                
+                # Verify file was downloaded and has content
+                if os.path.getsize(local_filename) == 0:
+                    raise ValueError("Downloaded file is empty")
+                    
+                # Update UI when complete
+                QtCore.QMetaObject.invokeMethod(
+                    self,
+                    "download_complete",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, local_filename)
+                )
+                
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    error_msg = f"Firmware file not found (404). The URL may be incorrect: {url}"
+                else:
+                    error_msg = f"HTTP Error {e.code}: {e.reason}"
+                logger.error(error_msg)
+                QtCore.QMetaObject.invokeMethod(
+                    self,
+                    "download_error",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, error_msg)
+                )
+            except urllib.error.URLError as e:
+                error_msg = f"Network error: {str(e.reason)}. Please check your internet connection."
+                logger.error(error_msg)
+                QtCore.QMetaObject.invokeMethod(
+                    self,
+                    "download_error",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, error_msg)
+                )
+            except TimeoutError:
+                error_msg = "Download timed out. Server may be slow or unavailable."
+                logger.error(error_msg)
+                QtCore.QMetaObject.invokeMethod(
+                    self,
+                    "download_error",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, error_msg)
+                )
+                
+        except Exception as e:
+            logger.error("Download error: %s", e, exc_info=True)
+            # Update UI on error
+            QtCore.QMetaObject.invokeMethod(
+                self,
+                "download_error",
+                QtCore.Qt.ConnectionType.QueuedConnection,
+                QtCore.Q_ARG(str, str(e))
+            )
+            
+    @QtCore.pyqtSlot(int, str)
+    def update_progress_from_thread(self, value, status):
+        """Thread-safe method to update progress from background threads"""
+        self.update_progress(value, status)
+
+    @QtCore.pyqtSlot(str)
+    def download_complete(self, filename):
+        """Handle download completion in the main thread"""
+        self.log(f"Download completed: {filename}")
+        self.update_progress(100, "Download completed")
+        self.firmware_path = filename
+        self.firmware_label.setText(os.path.basename(filename))
+
+    @QtCore.pyqtSlot(str)
+    def download_error(self, error_msg):
+        """Handle download error in the main thread"""
+        self.log(f"Download failed: {error_msg}")
+        self.update_progress(0, "Download failed")
+        
+        # Show error dialog with option to open GitHub
+        msg_box = QtWidgets.QMessageBox()
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        msg_box.setWindowTitle("Download Failed")
+        msg_box.setText(f"Failed to download firmware:\n{error_msg}")
+        msg_box.setInformativeText("Would you like to open the GitHub repository in your browser instead?")
+        msg_box.setStandardButtons(
+            QtWidgets.QMessageBox.StandardButton.Yes | 
+            QtWidgets.QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Yes)
+        
+        if msg_box.exec() == QtWidgets.QMessageBox.StandardButton.Yes:
+            self.open_github_repo()
+            
+    def open_github_repo(self):
+        """Open the GitHub repository in the default web browser"""
+        try:
+            import webbrowser
+            # Direct link to the firmware directory
+            repo_url = "https://github.com/clockworkpi/PicoCalc/tree/master/Bin/PicoCalc%20SD/firmware"
+            self.log(f"Opening GitHub firmware directory in browser: {repo_url}")
+            webbrowser.open(repo_url)
+        except Exception as e:
+            logger.error("Failed to open browser: %s", e, exc_info=True)
+            self.log(f"Failed to open browser: {str(e)}")
 
     def flash_card(self):
         """Start the flashing process"""
@@ -669,6 +1070,389 @@ class FlashTool(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Error in dd monitor thread: {str(e)}")
             # Don't update UI directly from thread - could cause issues
+
+    def scan_github_for_firmware(self):
+        """Display the list of available firmware images"""
+        logger.info("Showing available firmware images")
+        self.log("Loading available firmware images...")
+        
+        # Use the predefined firmware images list
+        available_firmware = []
+        for key, fw in OFFICIAL_FIRMWARE_IMAGES.items():
+            available_firmware.append(fw)
+            
+        # Clear the firmware list
+        self.firmware_list.clear()
+        
+        # Add each firmware to the list
+        for firmware in available_firmware:
+            item = QtWidgets.QListWidgetItem(firmware['name'])
+            item.setToolTip(firmware['description'])
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, firmware)
+            self.firmware_list.addItem(item)
+            
+        self.log(f"Found {len(available_firmware)} firmware files.")
+        self.update_progress(100, "Ready to download")
+        
+        # Select the first item by default
+        if self.firmware_list.count() > 0:
+            self.firmware_list.setCurrentRow(0)
+
+    def download_all_firmware(self):
+        """Download all available firmware images to the downloads folder"""
+        logger.info("Starting batch download of all firmware images")
+        self.log("Starting download of all firmware images...")
+        
+        # Create downloads directory if it doesn't exist
+        downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")
+        os.makedirs(downloads_dir, exist_ok=True)
+        
+        # Get list of firmware to download
+        firmware_list = list(OFFICIAL_FIRMWARE_IMAGES.values())
+        total_count = len(firmware_list)
+        
+        # Start the batch download in a separate thread
+        download_thread = threading.Thread(
+            target=self._batch_download_thread,
+            args=(firmware_list, downloads_dir)
+        )
+        download_thread.daemon = True
+        download_thread.start()
+        
+    def _batch_download_thread(self, firmware_list, downloads_dir):
+        """Download multiple firmware files in sequence"""
+        total_count = len(firmware_list)
+        successful_downloads = 0
+        failed_downloads = 0
+        
+        for i, firmware in enumerate(firmware_list):
+            try:
+                # Update progress
+                progress = int((i / total_count) * 100)
+                QtCore.QMetaObject.invokeMethod(
+                    self, 
+                    "update_progress_from_thread", 
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(int, progress),
+                    QtCore.Q_ARG(str, f"Downloading {firmware['name']} ({i+1}/{total_count})")
+                )
+                
+                # Log the download attempt
+                msg = f"Downloading {firmware['name']} ({i+1}/{total_count}): {firmware['url']}"
+                logger.info(msg)
+                QtCore.QMetaObject.invokeMethod(
+                    self, 
+                    "log_from_thread", 
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, msg)
+                )
+                
+                # Perform the download
+                local_filename = os.path.join(downloads_dir, firmware['path'])
+                headers = {'User-Agent': 'PicoCalc-SD-Flasher/1.0'}
+                req = urllib.request.Request(firmware['url'], headers=headers)
+                
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    with open(local_filename, 'wb') as f:
+                        f.write(response.read())
+                
+                # Check if file was downloaded successfully
+                if os.path.exists(local_filename) and os.path.getsize(local_filename) > 0:
+                    successful_downloads += 1
+                    success_msg = f"Successfully downloaded {firmware['name']} to {local_filename}"
+                    logger.info(success_msg)
+                    QtCore.QMetaObject.invokeMethod(
+                        self, 
+                        "log_from_thread", 
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, success_msg)
+                    )
+                else:
+                    failed_downloads += 1
+                    error_msg = f"Downloaded file {firmware['name']} is empty or missing"
+                    logger.error(error_msg)
+                    QtCore.QMetaObject.invokeMethod(
+                        self, 
+                        "log_from_thread", 
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, error_msg)
+                    )
+                    
+            except Exception as e:
+                failed_downloads += 1
+                error_msg = f"Failed to download {firmware['name']}: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                QtCore.QMetaObject.invokeMethod(
+                    self, 
+                    "log_from_thread", 
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, error_msg)
+                )
+                
+        # Final update with summary
+        summary = f"Download complete: {successful_downloads} successful, {failed_downloads} failed"
+        logger.info(summary)
+        QtCore.QMetaObject.invokeMethod(
+            self, 
+            "log_from_thread", 
+            QtCore.Qt.ConnectionType.QueuedConnection,
+            QtCore.Q_ARG(str, summary)
+        )
+        
+        # Update progress to 100%
+        QtCore.QMetaObject.invokeMethod(
+            self, 
+            "update_progress_from_thread", 
+            QtCore.Qt.ConnectionType.QueuedConnection,
+            QtCore.Q_ARG(int, 100),
+            QtCore.Q_ARG(str, "Download complete")
+        )
+        
+        # Open the downloads folder if there were successful downloads
+        if successful_downloads > 0:
+            QtCore.QMetaObject.invokeMethod(
+                self, 
+                "open_downloads_folder", 
+                QtCore.Qt.ConnectionType.QueuedConnection
+            )
+            
+    @QtCore.pyqtSlot(str)
+    def log_from_thread(self, message):
+        """Thread-safe method to log messages from background threads"""
+        self.log(message)
+        
+    @QtCore.pyqtSlot()
+    def open_downloads_folder(self):
+        """Open the downloads folder in the file explorer"""
+        try:
+            downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")
+            if sys.platform == 'darwin':  # macOS
+                subprocess.run(['open', downloads_dir])
+            elif sys.platform.startswith('linux'):  # Linux
+                subprocess.run(['xdg-open', downloads_dir])
+            elif sys.platform == 'win32':  # Windows
+                subprocess.run(['explorer', downloads_dir])
+        except Exception as e:
+            logger.error("Error opening downloads folder: %s", e, exc_info=True)
+            self.log(f"Error opening downloads folder: {str(e)}")
+
+    def show_device_help(self):
+        """Show a help dialog with information about device selection"""
+        help_text = """
+<h3>How to Select the Correct Device</h3>
+<p>When using an SD card, you may see multiple entries for the same physical device:</p>
+<ul>
+    <li>On macOS, you might see <b>/dev/disk4</b> and also <b>/dev/disk4s1</b> (a partition)</li>
+    <li>On Linux, you might see <b>/dev/sdb</b> and also <b>/dev/sdb1</b> (a partition)</li>
+</ul>
+
+<p><b>Always select the main device</b> (the one without a number at the end):</p>
+<ul>
+    <li>✅ Correct: <b>/dev/disk4</b>, <b>/dev/sdb</b></li>
+    <li>❌ Incorrect: <b>/dev/disk4s1</b>, <b>/dev/sdb1</b></li>
+</ul>
+
+<p>This tool will automatically create the necessary partitions on the device.</p>
+
+<h4>Tips for identifying your SD card:</h4>
+<ol>
+    <li>Unplug the SD card, click Refresh</li>
+    <li>Plug in the SD card, click Refresh again</li>
+    <li>The newly appeared device is your SD card</li>
+    <li>Check the size matches your SD card's capacity</li>
+</ol>
+"""
+        msg_box = QtWidgets.QMessageBox()
+        msg_box.setWindowTitle("Device Selection Help")
+        msg_box.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        msg_box.setText(help_text)
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Information)
+        msg_box.exec()
+
+    def show_all_disks(self):
+        """Show a dialog with all disks and allow selection"""
+        logger.info("Showing all available disks")
+        self.log("Loading all available disks...")
+        
+        # Data structure to store disk information
+        all_disk_info = []
+        
+        try:
+            if sys.platform == 'darwin':  # macOS
+                # Get list of all disks
+                output = subprocess.check_output(
+                    ['diskutil', 'list'], 
+                    universal_newlines=True)
+                
+                # Parse the output to find all disk identifiers
+                disk_identifiers = []
+                for line in output.splitlines():
+                    if line.startswith("/dev/disk") and not "s" in line.split()[0]:
+                        disk_id = line.split()[0].replace("/dev/", "")
+                        disk_identifiers.append(disk_id)
+                
+                # Get detailed info for each disk
+                for disk_id in disk_identifiers:
+                    try:
+                        info_output = subprocess.check_output(
+                            ['diskutil', 'info', disk_id],
+                            universal_newlines=True)
+                        
+                        # Extract important properties
+                        device_path = f"/dev/{disk_id}"
+                        size_gb = "Unknown"
+                        is_internal = True
+                        is_removable = False
+                        disk_name = "Unknown"
+                        
+                        # Parse the output for key properties
+                        for line in info_output.splitlines():
+                            if "Disk Size:" in line:
+                                try:
+                                    size_parts = line.split("(")
+                                    if len(size_parts) > 1:
+                                        gb_part = size_parts[1].split()
+                                        size_gb = gb_part[0]
+                                except Exception:
+                                    pass
+                            elif "Device / Media Name:" in line:
+                                try:
+                                    disk_name = line.split("Device / Media Name:")[1].strip()
+                                except Exception:
+                                    pass
+                            elif "Internal:" in line:
+                                is_internal = "Yes" in line
+                            elif "Removable Media:" in line:
+                                is_removable = "Yes" in line or "Removable" in line
+                        
+                        # Create display info
+                        disk_type = "INTERNAL" if is_internal else "EXTERNAL"
+                        removable = "REMOVABLE" if is_removable else "FIXED"
+                        
+                        display_text = f"{disk_type} {removable}: {disk_name} ({size_gb}) - {device_path}"
+                        all_disk_info.append({
+                            "display_text": display_text,
+                            "device_path": device_path,
+                            "is_internal": is_internal,
+                            "is_removable": is_removable
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"Error getting info for {disk_id}: {e}")
+                        
+            elif sys.platform.startswith('linux'):  # Linux
+                # Use lsblk to get all disks
+                output = subprocess.check_output(
+                    ['lsblk', '-o', 'NAME,SIZE,RM,TYPE', '-n', '-p'], 
+                    universal_newlines=True)
+                
+                for line in output.strip().split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[3] == 'disk':
+                        device_path = parts[0]
+                        size = parts[1]
+                        is_removable = parts[2] == '1'
+                        
+                        disk_type = "REMOVABLE" if is_removable else "FIXED"
+                        display_text = f"{disk_type}: {device_path} ({size})"
+                        
+                        all_disk_info.append({
+                            "display_text": display_text,
+                            "device_path": device_path,
+                            "is_internal": not is_removable,
+                            "is_removable": is_removable
+                        })
+            
+            # Create a dialog to display and select from the list of disks
+            dialog = QtWidgets.QDialog(self)
+            dialog.setWindowTitle("All Available Disks")
+            dialog.setMinimumSize(700, 500)
+            
+            layout = QtWidgets.QVBoxLayout(dialog)
+            
+            # Add a warning message
+            warning = QtWidgets.QLabel(
+                "<h3>⚠️ WARNING: Be extremely careful when selecting a disk ⚠️</h3>" +
+                "<p>Selecting the wrong disk could result in <b>DATA LOSS</b>.</p>" +
+                "<p>For an SD card, look for an <b>EXTERNAL REMOVABLE</b> disk.</p>" +
+                "<p>Never select an <b>INTERNAL</b> disk - this is likely your system drive!</p>"
+            )
+            warning.setStyleSheet("color: red; font-weight: bold;")
+            warning.setWordWrap(True)
+            layout.addWidget(warning)
+            
+            # Create a table to display the disk information
+            table = QtWidgets.QTableWidget()
+            table.setColumnCount(4)
+            table.setHorizontalHeaderLabels(["Disk", "Type", "Removable", "Select"])
+            table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+            table.setRowCount(len(all_disk_info))
+            
+            # Add disk info to the table
+            for i, disk in enumerate(all_disk_info):
+                # Disk info cell
+                info_item = QtWidgets.QTableWidgetItem(disk["display_text"])
+                info_item.setFlags(info_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                table.setItem(i, 0, info_item)
+                
+                # Type cell
+                type_item = QtWidgets.QTableWidgetItem("INTERNAL" if disk["is_internal"] else "EXTERNAL")
+                type_item.setFlags(type_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                if disk["is_internal"]:
+                    type_item.setBackground(QtGui.QColor(255, 200, 200))  # Light red for internal
+                else:
+                    type_item.setBackground(QtGui.QColor(200, 255, 200))  # Light green for external
+                table.setItem(i, 1, type_item)
+                
+                # Removable cell
+                removable_item = QtWidgets.QTableWidgetItem("YES" if disk["is_removable"] else "NO")
+                removable_item.setFlags(removable_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                if disk["is_removable"]:
+                    removable_item.setBackground(QtGui.QColor(200, 255, 200))  # Light green for removable
+                else:
+                    removable_item.setBackground(QtGui.QColor(255, 200, 200))  # Light red for fixed
+                table.setItem(i, 2, removable_item)
+                
+                # Select button cell
+                select_btn = QtWidgets.QPushButton("Select")
+                select_btn.clicked.connect(lambda checked, path=disk["device_path"]: self.select_disk_from_dialog(dialog, path))
+                if disk["is_internal"]:
+                    select_btn.setStyleSheet("background-color: red; color: white;")
+                    select_btn.setToolTip("WARNING: This appears to be an internal disk!")
+                table.setCellWidget(i, 3, select_btn)
+            
+            layout.addWidget(table)
+            
+            # Add a close button
+            close_btn = QtWidgets.QPushButton("Close")
+            close_btn.clicked.connect(dialog.reject)
+            layout.addWidget(close_btn)
+            
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"Error showing all disks: {e}")
+            self.log(f"Error showing all disks: {str(e)}")
+            
+    def select_disk_from_dialog(self, dialog, device_path):
+        """Select a disk from the dialog and add it to the device combo box"""
+        # Confirmation dialog for safety
+        confirm = QtWidgets.QMessageBox.warning(
+            dialog,
+            "Confirm Device Selection",
+            f"Are you sure you want to select {device_path}?\n\n"
+            "WARNING: Selecting the wrong device could result in DATA LOSS!",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No
+        )
+        
+        if confirm == QtWidgets.QMessageBox.StandardButton.Yes:
+            # Add the device to the combo box
+            self.device_combo.clear()
+            display_text = f"SELECTED: {device_path}"
+            self.device_combo.addItem(display_text, device_path)
+            self.log(f"Selected device: {device_path}")
+            dialog.accept()  # Close the dialog
 
 
 if __name__ == "__main__":
