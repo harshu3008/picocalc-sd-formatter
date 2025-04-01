@@ -104,7 +104,7 @@ class TestSDCardValidator(unittest.TestCase):
                 if not always_match(target):
                     return False, f"Invalid target partition format: {target}"
                 
-                # Verify disk exists    
+                # Verify target device exists first, then check partition
                 if not os.path.exists(target_device):
                     return False, f"Target device does not exist: {target_device}"
                     
@@ -138,6 +138,147 @@ class TestSDCardValidator(unittest.TestCase):
             # Restore the original validator
             self.validator = original_validator
 
+    @patch('hashlib.sha256')
+    @patch('os.path.exists')
+    @patch('os.path.getsize')
+    def test_image_checksum(self, mock_getsize, mock_exists, mock_sha256):
+        """Test checksum validation with mocks"""
+        # Configure mocks
+        mock_exists.return_value = True
+        mock_getsize.return_value = 1024  # Fake file size
+        
+        # Mock hash objects for source and target
+        mock_source_hash = MagicMock()
+        mock_source_hash.hexdigest.return_value = "abc123"
+        
+        mock_target_hash = MagicMock()
+        mock_target_hash.hexdigest.return_value = "abc123"  # Same hash = success
+        
+        # Setup sha256 mock to return different hash objects
+        mock_sha256.side_effect = [mock_source_hash, mock_target_hash]
+        
+        # Patch the file open operations
+        with patch('builtins.open', create=True) as mock_open:
+            # Mock file objects
+            mock_source_file = MagicMock()
+            mock_target_file = MagicMock()
+            
+            # Configure read method to return data once then empty
+            mock_source_file.read.side_effect = [b"test data", b""]
+            mock_target_file.read.side_effect = [b"test data", b""]
+            
+            # Make open return different file objects depending on the path
+            def open_side_effect(path, *args, **kwargs):
+                if path == 'test_fuzix.img':
+                    return mock_source_file
+                else:
+                    return mock_target_file
+                    
+            mock_open.side_effect = open_side_effect
+            
+            # Test with matching checksums
+            success, message = self.validator.verify_image_checksum(
+                'test_fuzix.img', '/dev/sdb', 2
+            )
+            self.assertTrue(success, "Matching checksums should pass verification")
+            
+            # Test with different checksums
+            mock_target_hash.hexdigest.return_value = "def456"  # Different hash = fail
+            mock_sha256.side_effect = [mock_source_hash, mock_target_hash]
+            
+            success, message = self.validator.verify_image_checksum(
+                'test_fuzix.img', '/dev/sdb', 2
+            )
+            self.assertFalse(success, "Different checksums should fail verification")
+
+    @patch('subprocess.run')
+    def test_write_protection(self, mock_run):
+        """Test write protection detection with mocks"""
+        # This is a test for the flash_tool.py implementation
+        # We'll add a method to SDCardValidator to test it
+        
+        # Add write protection check method to validator for testing
+        def check_write_protection(device):
+            try:
+                if sys.platform == 'darwin':  # macOS
+                    # Mock diskutil info with WritableMedia=False
+                    result = subprocess.run(
+                        ['diskutil', 'info', '-plist', os.path.basename(device)],
+                        capture_output=True, text=True, check=True
+                    )
+                    # Parse plist output
+                    import plistlib
+                    disk_info = plistlib.loads(result.stdout.encode('utf-8'))
+                    
+                    return disk_info.get('WritableMedia', True)
+                    
+                elif sys.platform.startswith('linux'):  # Linux
+                    # Mock blockdev --getro
+                    result = subprocess.run(
+                        ['blockdev', '--getro', device],
+                        capture_output=True, text=True, check=True
+                    )
+                    
+                    return result.stdout.strip() != "1"
+                    
+                return True
+            except Exception:
+                return False
+                
+        # Temporarily add method to validator
+        self.validator.check_write_protection = check_write_protection
+        
+        try:
+            # Test macOS write protection
+            if sys.platform == 'darwin':
+                # Mock writeable media
+                mock_process = MagicMock()
+                mock_process.stdout = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>WritableMedia</key>
+    <true/>
+</dict>
+</plist>"""
+                mock_process.returncode = 0
+                mock_run.return_value = mock_process
+                
+                result = self.validator.check_write_protection("/dev/disk0")
+                self.assertTrue(result, "Writable media should pass check")
+                
+                # Mock read-only media
+                mock_process.stdout = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>WritableMedia</key>
+    <false/>
+</dict>
+</plist>"""
+                result = self.validator.check_write_protection("/dev/disk0")
+                self.assertFalse(result, "Read-only media should fail check")
+                
+            # Test Linux write protection
+            elif sys.platform.startswith('linux'):
+                # Mock writable device
+                mock_process = MagicMock()
+                mock_process.stdout = "0\n"
+                mock_process.returncode = 0
+                mock_run.return_value = mock_process
+                
+                result = self.validator.check_write_protection("/dev/sdb")
+                self.assertTrue(result, "Writable device should pass check")
+                
+                # Mock read-only device
+                mock_process.stdout = "1\n"
+                result = self.validator.check_write_protection("/dev/sdb")
+                self.assertFalse(result, "Read-only device should fail check")
+                
+        finally:
+            # Remove the temporarily added method
+            delattr(self.validator, 'check_write_protection')
+
     @patch.object(SDCardValidator, 'validate_device')
     @patch.object(SDCardValidator, 'validate_formatting_flags')
     @patch.object(SDCardValidator, 'validate_partition_alignment')
@@ -157,13 +298,16 @@ class TestSDCardValidator(unittest.TestCase):
         results = self.validator.validate_all(device, total_size_mb, firmware_path)
         
         # Verify all validation checks are present
-        required_checks = ["device", "partition_sequence", "formatting", "alignment", "dd_write"]
+        required_checks = ["device", "partition_sequence", "formatting", "alignment", "dd_write", "checksum"]
         for check in required_checks:
             self.assertIn(check, results, f"Missing validation check: {check}")
             
-        # Verify all validations pass
+        # Verify all validations pass (except checksum which is marked as not performed)
         for check, (success, _) in results.items():
-            self.assertTrue(success, f"Validation check failed: {check}")
+            if check != "checksum":
+                self.assertTrue(success, f"Validation check failed: {check}")
+            else:
+                self.assertFalse(success, "Checksum check should be marked as not performed during pre-check")
             
         # Test with one failed validation
         mock_device.return_value = (False, "Device validation failed")

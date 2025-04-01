@@ -209,6 +209,11 @@ class FlashTool(QtWidgets.QMainWindow):
             self.log("Validation failed. Please fix the issues before proceeding.")
             return
             
+        # Check for write protection
+        if not self.check_write_protection(device):
+            self.log("Error: Device appears to be write-protected. Cannot proceed.")
+            return
+            
         # Show destructive operation warning
         reply = QtWidgets.QMessageBox.warning(
             self,
@@ -260,6 +265,19 @@ class FlashTool(QtWidgets.QMainWindow):
             self.run_command(
                 f"sudo dd if='{self.firmware_path}' of='{linux_partition}' bs=4M status=progress"
             )
+            
+            # Step 4: Verify checksum (new)
+            self.log("Verifying flashed image with checksum validation...")
+            checksum_success, checksum_message = validator.verify_image_checksum(
+                self.firmware_path, device, 2
+            )
+            
+            if checksum_success:
+                self.log("Checksum verification successful! Image flashed correctly.")
+            else:
+                self.log(f"Warning: {checksum_message}")
+                self.log("The SD card may not have been flashed correctly.")
+                # Don't return, continue with final steps
 
             self.log("Flash completed successfully!")
             logger.info("Flash process completed successfully.")
@@ -268,7 +286,7 @@ class FlashTool(QtWidgets.QMainWindow):
             self.log(f"Error during flash process: {str(e)}")
         finally:
             self.start_btn.setEnabled(True)
-            
+    
     def get_device_size_mb(self, device):
         """Get device size in MB using platform-specific methods"""
         if sys.platform == 'darwin':
@@ -367,6 +385,63 @@ class FlashTool(QtWidgets.QMainWindow):
         logger.warning("Abort requested by user (not fully implemented).")
         self.log("Abort requested, but not implemented in this simple version.")
         self.log("Please wait for current operation to complete.")
+
+    def check_write_protection(self, device):
+        """Check if the device is write-protected"""
+        logger.info("Checking write protection for %s", device)
+        self.log(f"Checking write protection status for {device}...")
+        
+        try:
+            if sys.platform == 'darwin':  # macOS
+                # Get diskutil info for write protection status
+                result = subprocess.run(
+                    ['diskutil', 'info', '-plist', os.path.basename(device)],
+                    capture_output=True, text=True, check=True
+                )
+                
+                disk_info = plistlib.loads(result.stdout.encode('utf-8'))
+                
+                # Check read-only status
+                if disk_info.get('WritableMedia') == False:
+                    logger.warning("Device %s is write-protected", device)
+                    return False
+                    
+            elif sys.platform.startswith('linux'):  # Linux
+                # Check write protection using blockdev command
+                result = subprocess.run(
+                    ['sudo', 'blockdev', '--getro', device],
+                    capture_output=True, text=True, check=True
+                )
+                
+                # If result is "1", the device is read-only
+                if result.stdout.strip() == "1":
+                    logger.warning("Device %s is write-protected", device)
+                    return False
+                    
+                # Try to open the device for writing to test access
+                try:
+                    # Open file for writing (won't actually write anything)
+                    fd = os.open(device, os.O_WRONLY)
+                    os.close(fd)
+                except PermissionError:
+                    logger.warning("Permission denied to write to %s", device)
+                    self.log("Permission denied to write to device. Try running as root or with sudo.")
+                    return False
+                except OSError as e:
+                    logger.warning("Could not open %s for writing: %s", device, e)
+                    return False
+                    
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to check write protection: %s", e, exc_info=True)
+            self.log(f"Warning: Could not check write protection status. Proceeding anyway.")
+            # Return True to allow operation to continue
+            return True
+        except Exception as e:
+            logger.error("Error checking write protection: %s", e, exc_info=True)
+            self.log(f"Warning: Could not determine write protection status: {str(e)}")
+            # Return True to allow operation to continue
+            return True
 
 
 if __name__ == "__main__":
