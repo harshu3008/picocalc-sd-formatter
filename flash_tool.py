@@ -9,7 +9,6 @@ from PyQt6 import QtWidgets, QtCore, QtGui
 from validation import SDCardValidator, format_validation_results
 import threading
 import time
-import urllib.request  # Add import for URL handling
 import stat  # Import for file permissions
 import tempfile  # Import for temporary directory handling
 
@@ -70,46 +69,11 @@ def setup_logging():
 # Configure logging
 logger = setup_logging()
 
-# Official PicoCalc firmware images from GitHub repository
-OFFICIAL_FIRMWARE_IMAGES = {
-    "FUZIX": {
-        "name": "FUZIX OS",
-        "description": "Lightweight UNIX-like OS for minimal resource usage",
-        "path": "PicoCalc_FUZIX_v1.0.uf2",
-        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/fuzix.uf2"
-    },
-    "PicoMite": {
-        "name": "PicoMite BASIC",
-        "description": "BASIC language interpreter based on MMBasic",
-        "path": "PicoCalc_PicoMite_v1.0.uf2",
-        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/PicoMite.uf2"
-    },
-    "NES": {
-        "name": "NES Emulator",
-        "description": "NES emulator for programming study",
-        "path": "PicoCalc_NES_v1.0.uf2",
-        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/picocalc_nes.uf2"
-    },
-    "uLisp": {
-        "name": "uLisp",
-        "description": "Lisp programming language for ARM-based boards",
-        "path": "PicoCalc_uLisp_v1.0.uf2",
-        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/ulisp-arm.ino.rpipico.uf2"
-    },
-    "MP3Player": {
-        "name": "MP3 Player",
-        "description": "Simple MP3 player based on YAHAL",
-        "path": "PicoCalc_MP3Player_v0.5.uf2",
-        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/pico-mp3-player.uf2"
-    }
-}
-
 class FlashTool(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         logger.info("Initializing FlashTool application.")
-        self.firmware_path = "fuzix.img"  # Default hardcoded path
-        self.setWindowTitle("PicoCalc SD Flasher")
+        self.setWindowTitle("PicoCalc SD Card Formatter")
         self.setMinimumSize(500, 400)
         
         # Process tracking
@@ -156,57 +120,7 @@ class FlashTool(QtWidgets.QMainWindow):
         device_layout.addWidget(self.device_help_btn)
         device_layout.addWidget(self.show_all_disks_btn)
         layout.addWidget(device_group)
-        
-        # Add firmware download group
-        download_group = QtWidgets.QGroupBox("Download Official Firmware")
-        download_layout = QtWidgets.QVBoxLayout(download_group)
-        
-        # Add firmware list widget
-        self.firmware_list = QtWidgets.QListWidget()
-        self.firmware_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
-        
-        # Populate firmware list
-        for key, firmware in OFFICIAL_FIRMWARE_IMAGES.items():
-            item = QtWidgets.QListWidgetItem(f"{firmware['name']}")
-            item.setToolTip(firmware['description'])
-            item.setData(QtCore.Qt.ItemDataRole.UserRole, key)
-            self.firmware_list.addItem(item)
-        
-        # Add buttons in horizontal layout
-        buttons_layout = QtWidgets.QHBoxLayout()
-        
-        # Add download button
-        self.download_btn = QtWidgets.QPushButton("Download Selected Firmware")
-        self.download_btn.clicked.connect(self.download_firmware)
-        
-        # Add download all button
-        self.download_all_btn = QtWidgets.QPushButton("Download All Firmware")
-        self.download_all_btn.clicked.connect(self.download_all_firmware)
-        
-        # Add scan GitHub button
-        self.scan_github_btn = QtWidgets.QPushButton("Scan GitHub for Firmware")
-        self.scan_github_btn.clicked.connect(self.scan_github_for_firmware)
-        
-        buttons_layout.addWidget(self.download_btn)
-        buttons_layout.addWidget(self.download_all_btn)
-        buttons_layout.addWidget(self.scan_github_btn)
-        
-        download_layout.addWidget(self.firmware_list)
-        download_layout.addLayout(buttons_layout)
-        layout.addWidget(download_group)
-        
-        # Firmware selection group
-        firmware_group = QtWidgets.QGroupBox("Select Firmware")
-        firmware_layout = QtWidgets.QHBoxLayout(firmware_group)
-        
-        self.firmware_label = QtWidgets.QLabel("fuzix.img")
-        self.select_btn = QtWidgets.QPushButton("Select Firmware")
-        self.select_btn.clicked.connect(self.select_firmware)
-        
-        firmware_layout.addWidget(self.firmware_label)
-        firmware_layout.addWidget(self.select_btn)
-        layout.addWidget(firmware_group)
-        
+
         # Progress group
         progress_group = QtWidgets.QGroupBox("Operation Progress")
         progress_layout = QtWidgets.QVBoxLayout(progress_group)
@@ -234,7 +148,7 @@ class FlashTool(QtWidgets.QMainWindow):
         # Action buttons
         button_layout = QtWidgets.QHBoxLayout()
         
-        self.start_btn = QtWidgets.QPushButton("Flash SD Card")
+        self.start_btn = QtWidgets.QPushButton("Format SD Card")
         self.start_btn.clicked.connect(self.flash_card)
         
         self.abort_btn = QtWidgets.QPushButton("Abort")
@@ -246,11 +160,11 @@ class FlashTool(QtWidgets.QMainWindow):
         layout.addLayout(button_layout)
         
         # Set stretch factors
-        layout.setStretch(3, 1)  # Make log output take available space
+        layout.setStretch(2, 1)  # Make log output take available space
         
         # Initial log
-        self.log("Welcome to PicoCalc SD Flashing Tool")
-        self.log("Please select a target device and firmware image")
+        self.log("Welcome to PicoCalc SD Card Formatter")
+        self.log("Please select a target device to format")
 
     def log(self, message):
         """Append message to log output widget and log to file."""
@@ -427,247 +341,6 @@ class FlashTool(QtWidgets.QMainWindow):
                 # Reset to the manual option
                 self.refresh_devices()
 
-    def select_firmware(self):
-        """Open file dialog to select firmware image"""
-        logger.info("Opening firmware selection dialog.")
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Select Firmware Image",
-            "",
-            "Firmware Files (*.uf2);;All Files (*)",
-        )
-
-        if file_path:
-            self.firmware_path = file_path
-            self.firmware_label.setText(os.path.basename(file_path))
-            logger.info("User selected firmware: %s", file_path)
-            self.log(f"Selected firmware: {file_path}")
-        else:
-            logger.info("Firmware selection cancelled by user.")
-            
-    def _check_url_exists(self, url):
-        """Check if a URL exists and is accessible"""
-        try:
-            headers = {'User-Agent': 'PicoCalc-SD-Flasher/1.0'}
-            req = urllib.request.Request(url, headers=headers, method='HEAD')
-            with urllib.request.urlopen(req, timeout=5) as response:
-                return True
-        except Exception:
-            return False
-            
-    def download_firmware(self):
-        """Download selected firmware from GitHub repository"""
-        current_item = self.firmware_list.currentItem()
-        if not current_item:
-            self.log("Please select a firmware to download")
-            return
-            
-        # Get firmware info - could be a key or a dictionary depending on selection source
-        firmware_data = current_item.data(QtCore.Qt.ItemDataRole.UserRole)
-        
-        # Handle different firmware_info formats
-        if isinstance(firmware_data, str):
-            # This is a key from the predefined list
-            firmware_info = OFFICIAL_FIRMWARE_IMAGES[firmware_data]
-        else:
-            # This is a firmware_info dictionary from the GitHub scan
-            firmware_info = firmware_data
-        
-        # Add attribution message
-        self.log("Community firmware files from https://github.com/cjstoddard/PicoCalc-uf2")
-        
-        # Check if URL exists before starting download
-        if not self._check_url_exists(firmware_info['url']):
-            self.log(f"Warning: The firmware URL seems to be unavailable: {firmware_info['url']}")
-            
-            # Show error dialog with option to open GitHub
-            msg_box = QtWidgets.QMessageBox()
-            msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
-            msg_box.setWindowTitle("Firmware URL Unavailable")
-            msg_box.setText(f"The firmware URL appears to be unavailable:\n{firmware_info['url']}")
-            msg_box.setInformativeText("Would you like to try anyway or open the GitHub repository in your browser to find the firmware manually?")
-            
-            try_anyway_btn = msg_box.addButton("Try Download Anyway", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-            open_github_btn = msg_box.addButton("Open GitHub Repository", QtWidgets.QMessageBox.ButtonRole.ActionRole)
-            cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
-            
-            msg_box.exec()
-            
-            if msg_box.clickedButton() == open_github_btn:
-                self.open_github_repo()
-                return
-            elif msg_box.clickedButton() == cancel_btn:
-                return
-            # If they clicked Try Anyway, we continue with the download
-        
-        # Update status
-        self.log(f"Downloading {firmware_info['name']}...")
-        self.update_progress(0, f"Downloading {firmware_info['name']}")
-        
-        try:
-            # Create downloads directory if it doesn't exist
-            downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")
-            os.makedirs(downloads_dir, exist_ok=True)
-            
-            # Use the direct URL from the firmware_info dictionary
-            download_url = firmware_info['url']
-            
-            # Start download in a separate thread to avoid blocking UI
-            download_thread = threading.Thread(
-                target=self._download_firmware_thread,
-                args=(download_url, downloads_dir, firmware_info)
-            )
-            download_thread.daemon = True
-            download_thread.start()
-            
-        except Exception as e:
-            logger.error("Error starting download: %s", e, exc_info=True)
-            self.log(f"Error starting download: {str(e)}")
-            self.update_progress(0, "Download failed")
-
-    def _download_firmware_thread(self, url, download_dir, firmware_info):
-        """Handle firmware download in a separate thread"""
-        try:
-            # Download with progress tracking
-            local_filename = os.path.join(download_dir, firmware_info['path'])
-            logger.info(f"Attempting to download from: {url}")
-            logger.info(f"Target save location: {local_filename}")
-            
-            # Add a user agent to avoid some GitHub API restrictions
-            headers = {'User-Agent': 'PicoCalc-SD-Flasher/1.0'}
-            req = urllib.request.Request(url, headers=headers)
-            
-            try:
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    file_size = int(response.headers.get('Content-Length', 0))
-                    
-                    if file_size == 0:
-                        raise ValueError("File size is 0 or Content-Length header is missing")
-                    
-                    with open(local_filename, 'wb') as f:
-                        downloaded = 0
-                        block_size = 8192
-                        
-                        while True:
-                            buffer = response.read(block_size)
-                            if not buffer:
-                                break
-                                
-                            downloaded += len(buffer)
-                            f.write(buffer)
-                            
-                            # Update progress - use QueuedConnection to safely update from another thread
-                            progress = int((downloaded / file_size) * 100) if file_size > 0 else 0
-                            status_msg = f"Downloading: {progress}%"
-                            
-                            # Use the signal/slot mechanism for thread-safe UI updates
-                            QtCore.QMetaObject.invokeMethod(
-                                self, 
-                                "update_progress_from_thread", 
-                                QtCore.Qt.ConnectionType.QueuedConnection,
-                                QtCore.Q_ARG(int, progress),
-                                QtCore.Q_ARG(str, status_msg)
-                            )
-                
-                # Verify file was downloaded and has content
-                if os.path.getsize(local_filename) == 0:
-                    raise ValueError("Downloaded file is empty")
-                    
-                # Update UI when complete
-                QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "download_complete",
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, local_filename)
-                )
-                
-            except urllib.error.HTTPError as e:
-                if e.code == 404:
-                    error_msg = f"Firmware file not found (404). The URL may be incorrect: {url}"
-                else:
-                    error_msg = f"HTTP Error {e.code}: {e.reason}"
-                logger.error(error_msg)
-                QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "download_error",
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, error_msg)
-                )
-            except urllib.error.URLError as e:
-                error_msg = f"Network error: {str(e.reason)}. Please check your internet connection."
-                logger.error(error_msg)
-                QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "download_error",
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, error_msg)
-                )
-            except TimeoutError:
-                error_msg = "Download timed out. Server may be slow or unavailable."
-                logger.error(error_msg)
-                QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "download_error",
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, error_msg)
-                )
-                
-        except Exception as e:
-            logger.error("Download error: %s", e, exc_info=True)
-            # Update UI on error
-            QtCore.QMetaObject.invokeMethod(
-                self,
-                "download_error",
-                QtCore.Qt.ConnectionType.QueuedConnection,
-                QtCore.Q_ARG(str, str(e))
-            )
-            
-    @QtCore.pyqtSlot(int, str)
-    def update_progress_from_thread(self, value, status):
-        """Thread-safe method to update progress from background threads"""
-        self.update_progress(value, status)
-
-    @QtCore.pyqtSlot(str)
-    def download_complete(self, filename):
-        """Handle download completion in the main thread"""
-        self.log(f"Download completed: {filename}")
-        self.update_progress(100, "Download completed")
-        self.firmware_path = filename
-        self.firmware_label.setText(os.path.basename(filename))
-
-    @QtCore.pyqtSlot(str)
-    def download_error(self, error_msg):
-        """Handle download error in the main thread"""
-        self.log(f"Download failed: {error_msg}")
-        self.update_progress(0, "Download failed")
-        
-        # Show error dialog with option to open GitHub
-        msg_box = QtWidgets.QMessageBox()
-        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
-        msg_box.setWindowTitle("Download Failed")
-        msg_box.setText(f"Failed to download firmware:\n{error_msg}")
-        msg_box.setInformativeText("Would you like to open the GitHub repository in your browser instead?")
-        msg_box.setStandardButtons(
-            QtWidgets.QMessageBox.StandardButton.Yes | 
-            QtWidgets.QMessageBox.StandardButton.No
-        )
-        msg_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Yes)
-        
-        if msg_box.exec() == QtWidgets.QMessageBox.StandardButton.Yes:
-            self.open_github_repo()
-            
-    def open_github_repo(self):
-        """Open the GitHub repository in the default web browser"""
-        try:
-            import webbrowser
-            # Direct link to the firmware directory
-            repo_url = "https://github.com/cjstoddard/PicoCalc-uf2"
-            self.log(f"Opening GitHub firmware repository in browser: {repo_url}")
-            webbrowser.open(repo_url)
-        except Exception as e:
-            logger.error("Failed to open browser: %s", e, exc_info=True)
-            self.log(f"Failed to open browser: {str(e)}")
-
     def flash_card(self):
         """Start the flashing process"""
         logger.info("Flash process initiated by user.")
@@ -682,7 +355,7 @@ class FlashTool(QtWidgets.QMainWindow):
         # Run validation checks
         validator = SDCardValidator()
         self.log("Running validation checks...")
-        self.update_progress(5, "Validating device and firmware")
+        self.update_progress(5, "Validating device")
         
         # Get device size in MB
         try:
@@ -696,14 +369,13 @@ class FlashTool(QtWidgets.QMainWindow):
             self.update_progress(0, "Error: Failed to get device size")
             return
             
-        validation_results = validator.validate_all(device, total_size_mb, self.firmware_path)
+        validation_results = validator.validate_all(device, total_size_mb)
         self.log(format_validation_results(validation_results))
         
         # Check if any REQUIRED validation failed
-        # (Fix: Only fail on required checks that actually failed, ignore pending ones like partition alignment)
         required_failed = any(
             not success for check, (success, _) in validation_results.items() 
-            if check in ["device", "partition_sequence", "formatting", "dd_write"]
+            if check in ["device", "partition_sequence", "formatting"]
         )
         
         if required_failed:
@@ -733,10 +405,10 @@ class FlashTool(QtWidgets.QMainWindow):
             self.update_progress(0, "Operation cancelled")
             return
             
-        self.log("Starting flash process...")
+        self.log("Starting format process...")
         self.start_btn.setEnabled(False)
         self.abort_btn.setEnabled(True)  # Enable abort button during operation
-        logger.debug("UI disabled during flash process.")
+        logger.debug("UI disabled during format process.")
 
         try:
             # Step 1: Partitioning
@@ -772,42 +444,13 @@ class FlashTool(QtWidgets.QMainWindow):
                 self.update_progress(35, "Partitions formatted by diskutil")
                 self.log("Partitions already formatted by diskutil")
 
-            # Step 3: Flashing firmware
-            linux_partition = validator.get_partition_device(device, 2)
-            logger.info("Step 3: Flashing firmware to %s", linux_partition)
-            self.update_progress(50, "Flashing firmware")
-            self.log(f"Flashing firmware '{os.path.basename(self.firmware_path)}' to {linux_partition}...")
-            
-            # Unmount the specific partition before flashing
-            if sys.platform == 'darwin':
-                self.log(f"Unmounting target partition {linux_partition}...")
-                self.run_command(f"diskutil unmount {linux_partition}", check_return_code=False)
-            
-            # Run DD command with progress updates
-            self.run_dd_with_progress(self.firmware_path, linux_partition)
-            
-            # Step 4: Verify checksum
-            self.update_progress(90, "Verifying checksum")
-            self.log("Verifying flashed image with checksum validation...")
-            checksum_success, checksum_message = validator.verify_image_checksum(
-                self.firmware_path, device, 2
-            )
-            
-            if checksum_success:
-                self.log("Checksum verification successful! Image flashed correctly.")
-                self.update_progress(100, "Flash completed successfully")
-            else:
-                self.log(f"Warning: {checksum_message}")
-                self.log("The SD card may not have been flashed correctly.")
-                self.update_progress(100, "Completed with verification warnings")
-                # Don't return, continue with final steps
-
-            self.log("Flash completed successfully!")
-            logger.info("Flash process completed successfully.")
+            self.log("Format completed successfully!")
+            self.update_progress(100, "Format completed successfully")
+            logger.info("Format process completed successfully.")
         except Exception as e:
-            logger.error("Flashing error: %s", e, exc_info=True)
-            self.log(f"Error during flash process: {str(e)}")
-            self.update_progress(0, "Error during flash process")
+            logger.error("Formatting error: %s", e, exc_info=True)
+            self.log(f"Error during format process: {str(e)}")
+            self.update_progress(0, "Error during format process")
         finally:
             self.start_btn.setEnabled(True)
             self.abort_btn.setEnabled(False)  # Disable abort button when done
@@ -1039,271 +682,6 @@ class FlashTool(QtWidgets.QMainWindow):
             self.progress_status.setText(status)
         # Force UI update
         QtWidgets.QApplication.processEvents()
-        
-    def run_dd_with_progress(self, source, target):
-        """Run dd command with progress monitoring"""
-        # Get file size to calculate progress
-        source_size = os.path.getsize(source)
-        logger.info(f"Source file size: {source_size} bytes")
-        
-        # Create dd command with status reporting
-        if sys.platform == 'darwin':
-            # macOS version of dd doesn't have status=progress, use custom monitoring
-            # Use a smaller block size (1m instead of 4M) which is more compatible on macOS
-            cmd = f"sudo dd if='{source}' of='{target}' bs=1m"
-        else:
-            # Linux dd with status=progress
-            cmd = f"sudo dd if='{source}' of='{target}' bs=4M status=progress"
-        
-        # Set status
-        self.update_progress(50, "Writing to device")
-        
-        # For macOS, we need to manually monitor the progress
-        if sys.platform == 'darwin':
-            process = subprocess.Popen(
-                cmd, 
-                shell=True, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
-                text=True
-            )
-            
-            # Store reference to current process
-            self.current_process = process
-            self.process_running = True
-            
-            # Start a separate thread to monitor dd progress on macOS
-            monitor_thread = threading.Thread(
-                target=self._monitor_dd_progress, 
-                args=(process, source_size)
-            )
-            monitor_thread.daemon = True
-            monitor_thread.start()
-            
-            # Wait for dd to complete
-            stdout, stderr = process.communicate()
-            
-            # Clear process reference
-            self.current_process = None
-            self.process_running = False
-            
-            # Log output
-            if stdout:
-                self.log(stdout.strip())
-            if stderr:
-                self.log(stderr.strip())
-            
-            # Check return code
-            if process.returncode != 0:
-                logger.error("DD command failed with return code %d", process.returncode)
-                self.log(f"DD command failed with return code: {process.returncode}")
-                raise Exception("DD command failed")
-        else:
-            # For Linux, use the standard run_command with status=progress
-            self.run_command(cmd)
-        
-        # Final progress update
-        self.update_progress(85, "DD write completed")
-
-    def _monitor_dd_progress(self, process, total_size):
-        """Monitor dd progress on macOS using periodic status checks"""
-        try:
-            while process.poll() is None and self.process_running:
-                if self.abort_requested:
-                    # Stop monitoring if abort was requested
-                    return
-                    
-                # Use pinfo to check how much has been written
-                try:
-                    # Get target device from process error output (hack)
-                    target_info = subprocess.check_output(
-                        f"ps -p {process.pid} -o command= | grep -o 'of=[^ ]*'",
-                        shell=True, text=True
-                    ).strip()
-                    
-                    if target_info:
-                        target = target_info.split('=')[1].strip("'\"")
-                        # Get current size of target
-                        if os.path.exists(target):
-                            current_size = os.path.getsize(target)
-                            # Calculate progress percentage
-                            progress = min(85, 50 + int((current_size / total_size) * 35))
-                            self.update_progress(progress, f"Writing: {current_size/1024/1024:.1f}MB of {total_size/1024/1024:.1f}MB")
-                except Exception as e:
-                    logger.debug(f"Error monitoring dd progress: {str(e)}")
-                    
-                # Sleep briefly before checking again
-                time.sleep(1)
-        except Exception as e:
-            logger.error(f"Error in dd monitor thread: {str(e)}")
-            # Don't update UI directly from thread - could cause issues
-
-    def scan_github_for_firmware(self):
-        """Display the list of available firmware images"""
-        logger.info("Showing available firmware images")
-        self.log("Loading available firmware images...")
-        self.log("Using community firmware source: https://github.com/cjstoddard/PicoCalc-uf2")
-        
-        # Use the predefined firmware images list
-        available_firmware = []
-        for key, fw in OFFICIAL_FIRMWARE_IMAGES.items():
-            available_firmware.append(fw)
-            
-        # Clear the firmware list
-        self.firmware_list.clear()
-        
-        # Add each firmware to the list
-        for firmware in available_firmware:
-            item = QtWidgets.QListWidgetItem(firmware['name'])
-            item.setToolTip(firmware['description'])
-            item.setData(QtCore.Qt.ItemDataRole.UserRole, firmware)
-            self.firmware_list.addItem(item)
-            
-        self.log(f"Found {len(available_firmware)} firmware files.")
-        self.update_progress(100, "Ready to download")
-        
-        # Select the first item by default
-        if self.firmware_list.count() > 0:
-            self.firmware_list.setCurrentRow(0)
-
-    def download_all_firmware(self):
-        """Download all available firmware images to the downloads folder"""
-        logger.info("Starting batch download of all firmware images")
-        self.log("Starting download of all firmware images...")
-        self.log("Community firmware files from https://github.com/cjstoddard/PicoCalc-uf2")
-        
-        # Create downloads directory if it doesn't exist
-        downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")
-        os.makedirs(downloads_dir, exist_ok=True)
-        
-        # Get list of firmware to download
-        firmware_list = list(OFFICIAL_FIRMWARE_IMAGES.values())
-        total_count = len(firmware_list)
-        
-        # Start the batch download in a separate thread
-        download_thread = threading.Thread(
-            target=self._batch_download_thread,
-            args=(firmware_list, downloads_dir)
-        )
-        download_thread.daemon = True
-        download_thread.start()
-        
-    def _batch_download_thread(self, firmware_list, downloads_dir):
-        """Download multiple firmware files in sequence"""
-        total_count = len(firmware_list)
-        successful_downloads = 0
-        failed_downloads = 0
-        
-        for i, firmware in enumerate(firmware_list):
-            try:
-                # Update progress
-                progress = int((i / total_count) * 100)
-                QtCore.QMetaObject.invokeMethod(
-                    self, 
-                    "update_progress_from_thread", 
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(int, progress),
-                    QtCore.Q_ARG(str, f"Downloading {firmware['name']} ({i+1}/{total_count})")
-                )
-                
-                # Log the download attempt
-                msg = f"Downloading {firmware['name']} ({i+1}/{total_count}): {firmware['url']}"
-                logger.info(msg)
-                QtCore.QMetaObject.invokeMethod(
-                    self, 
-                    "log_from_thread", 
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, msg)
-                )
-                
-                # Perform the download
-                local_filename = os.path.join(downloads_dir, firmware['path'])
-                headers = {'User-Agent': 'PicoCalc-SD-Flasher/1.0'}
-                req = urllib.request.Request(firmware['url'], headers=headers)
-                
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    with open(local_filename, 'wb') as f:
-                        f.write(response.read())
-                
-                # Check if file was downloaded successfully
-                if os.path.exists(local_filename) and os.path.getsize(local_filename) > 0:
-                    successful_downloads += 1
-                    success_msg = f"Successfully downloaded {firmware['name']} to {local_filename}"
-                    logger.info(success_msg)
-                    QtCore.QMetaObject.invokeMethod(
-                        self, 
-                        "log_from_thread", 
-                        QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, success_msg)
-                    )
-                else:
-                    failed_downloads += 1
-                    error_msg = f"Downloaded file {firmware['name']} is empty or missing"
-                    logger.error(error_msg)
-                    QtCore.QMetaObject.invokeMethod(
-                        self, 
-                        "log_from_thread", 
-                        QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, error_msg)
-                    )
-                    
-            except Exception as e:
-                failed_downloads += 1
-                error_msg = f"Failed to download {firmware['name']}: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                QtCore.QMetaObject.invokeMethod(
-                    self, 
-                    "log_from_thread", 
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, error_msg)
-                )
-                
-        # Final update with summary
-        summary = f"Download complete: {successful_downloads} successful, {failed_downloads} failed"
-        logger.info(summary)
-        QtCore.QMetaObject.invokeMethod(
-            self, 
-            "log_from_thread", 
-            QtCore.Qt.ConnectionType.QueuedConnection,
-            QtCore.Q_ARG(str, summary)
-        )
-        
-        # Update progress to 100%
-        QtCore.QMetaObject.invokeMethod(
-            self, 
-            "update_progress_from_thread", 
-            QtCore.Qt.ConnectionType.QueuedConnection,
-            QtCore.Q_ARG(int, 100),
-            QtCore.Q_ARG(str, "Download complete")
-        )
-        
-        # Open the downloads folder if there were successful downloads
-        if successful_downloads > 0:
-            QtCore.QMetaObject.invokeMethod(
-                self, 
-                "open_downloads_folder", 
-                QtCore.Qt.ConnectionType.QueuedConnection
-            )
-            
-    @QtCore.pyqtSlot(str)
-    def log_from_thread(self, message):
-        """Thread-safe method to log messages from background threads"""
-        self.log(message)
-        
-    @QtCore.pyqtSlot()
-    def open_downloads_folder(self):
-        """Open the downloads folder in the file explorer"""
-        try:
-            downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")
-            if sys.platform == 'darwin':  # macOS
-                subprocess.run(['open', downloads_dir])
-            elif sys.platform.startswith('linux'):  # Linux
-                subprocess.run(['xdg-open', downloads_dir])
-            elif sys.platform == 'win32':  # Windows
-                subprocess.run(['explorer', downloads_dir])
-        except Exception as e:
-            logger.error("Error opening downloads folder: %s", e, exc_info=True)
-            self.log(f"Error opening downloads folder: {str(e)}")
 
     def show_device_help(self):
         """Show a help dialog with information about device selection"""

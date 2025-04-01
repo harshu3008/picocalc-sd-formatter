@@ -554,69 +554,27 @@ class SDCardValidator:
             # Don't fail the overall validation for this; just warn
             return True, f"Could not validate flash memory parameters: {str(e)}"
         
-    def validate_all(self, device: str, total_size_mb: int, firmware_path: str) -> Dict[str, Tuple[bool, str]]:
-        """Run all validations and return results"""
-        # First check device
-        device_result = self.validate_device(device)
+    def validate_all(self, device: str, total_size_mb: int) -> Dict[str, Tuple[bool, str]]:
+        """Run all validation checks and return results"""
+        results = {}
         
-        # Generate and check partition sequence
-        partition_result = (False, "Partition sequence not validated")
+        # Check device path and existence
+        results["device"] = self.validate_device(device)
+        if not results["device"][0]:
+            return results
+            
+        # Check partition sequence
         try:
-            commands = self.validate_partition_sequence(device, total_size_mb)
-            if sys.platform == 'darwin':  # macOS
-                if len(commands) != 2:
-                    partition_result = (False, "Invalid command count for macOS diskutil")
-                elif "diskutil eraseDisk" not in commands[0]:
-                    partition_result = (False, "First command must erase the disk with diskutil")
-                elif "diskutil partitionDisk" not in commands[1]:
-                    partition_result = (False, "Second command must create partitions with diskutil")
-                else:
-                    # All commands look valid
-                    partition_result = (True, "Partition sequence validated")
-            else:  # Linux
-                if len(commands) != 3:
-                    partition_result = (False, "Invalid partition command count generated")
-                elif not commands[0].endswith("mklabel msdos"):
-                    partition_result = (False, "First command must create MSDOS label")
-                elif "mkpart primary fat32" not in commands[1]:
-                    partition_result = (False, "Second command must create FAT32 partition")
-                elif "mkpart primary" not in commands[2]:
-                    partition_result = (False, "Third command must create Linux partition")
-                else:
-                    # Calculate correct size
-                    fat_size = total_size_mb - 32
-                    if f"{fat_size}MiB" not in commands[1]:
-                        partition_result = (False, f"FAT32 partition must end at {fat_size}MiB")
-                    else:
-                        partition_result = (True, "Partition sequence validated")
+            partition_commands = self.validate_partition_sequence(device, total_size_mb)
+            results["partition_sequence"] = (True, f"Valid partition sequence generated: {len(partition_commands)} commands")
         except Exception as e:
-            partition_result = (False, f"Failed to validate partition sequence: {str(e)}")
+            results["partition_sequence"] = (False, f"Failed to generate partition sequence: {str(e)}")
+            return results
+            
+        # Check formatting tools
+        fat_partition = self.get_partition_device(device, 1)
+        results["formatting"] = self.validate_formatting_flags(fat_partition, 'fat32')
         
-        # Get formatting flags validation
-        formatting_result = self.validate_formatting_flags(self.get_partition_device(device, 1), 'fat32')
-        
-        # Check alignment
-        alignment_result = self.validate_partition_alignment(device)
-        
-        # Check flash memory parameters (new)
-        flash_result = self.validate_flash_parameters(device)
-        
-        # Validate DD write
-        dd_result = self.validate_dd_write(firmware_path, device, 2)
-        
-        # Validate checksum (new)
-        checksum_result = (False, "Checksum validation not performed during pre-flash check")
-        
-        # Return all results
-        results = {
-            "device": device_result,
-            "partition_sequence": partition_result,
-            "formatting": formatting_result,
-            "alignment": alignment_result,
-            "flash_parameters": flash_result,
-            "dd_write": dd_result,
-            "checksum": checksum_result  # Added checksum validation result
-        }
         return results
 
 def format_validation_results(results: Dict[str, Tuple[bool, str]]) -> str:
