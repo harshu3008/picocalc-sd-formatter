@@ -726,67 +726,61 @@ class FlashTool(QtWidgets.QMainWindow):
         
         try:
             if sys.platform == 'darwin':  # macOS
-                # Get list of all disks
+                # Get list of all disks using diskutil list
                 output = subprocess.check_output(
                     ['diskutil', 'list'], 
                     universal_newlines=True)
                 
                 # Parse the output to find all disk identifiers
-                disk_identifiers = []
+                current_disk = None
                 for line in output.splitlines():
-                    if line.startswith("/dev/disk") and not "s" in line.split()[0]:
-                        disk_id = line.split()[0].replace("/dev/", "")
-                        disk_identifiers.append(disk_id)
+                    line = line.strip()
+                    if line.startswith("/dev/disk"):
+                        # This is a disk entry
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            disk_id = parts[0].replace("/dev/", "")
+                            # Get disk info using diskutil info
+                            try:
+                                info_output = subprocess.check_output(
+                                    ['diskutil', 'info', '-plist', disk_id],
+                                    universal_newlines=True)
+                                
+                                # Parse plist output
+                                disk_info = plistlib.loads(info_output.encode('utf-8'))
+                                
+                                # Extract important properties
+                                device_path = f"/dev/{disk_id}"
+                                size_bytes = disk_info.get('TotalSize', 0)
+                                size_gb = size_bytes / (1024 * 1024 * 1024)  # Convert to GB
+                                is_internal = disk_info.get('Internal', True)
+                                is_removable = disk_info.get('RemovableMedia', False)
+                                disk_name = disk_info.get('VolumeName', 'NO NAME')
+                                
+                                # Create display info
+                                disk_type = "INTERNAL" if is_internal else "EXTERNAL"
+                                removable = "REMOVABLE" if is_removable else "FIXED"
+                                
+                                display_text = f"{disk_type} {removable}: {disk_name} ({size_gb:.1f} GB) - {device_path}"
+                                all_disk_info.append({
+                                    "display_text": display_text,
+                                    "device_path": device_path,
+                                    "is_internal": is_internal,
+                                    "is_removable": is_removable,
+                                    "size_gb": size_gb
+                                })
+                                
+                                logger.debug(f"Found disk: {display_text}")
+                                
+                            except Exception as e:
+                                logger.error(f"Error getting info for {disk_id}: {e}")
+                                continue
                 
-                # Get detailed info for each disk
-                for disk_id in disk_identifiers:
-                    try:
-                        info_output = subprocess.check_output(
-                            ['diskutil', 'info', disk_id],
-                            universal_newlines=True)
-                        
-                        # Extract important properties
-                        device_path = f"/dev/{disk_id}"
-                        size_gb = "Unknown"
-                        is_internal = True
-                        is_removable = False
-                        disk_name = "Unknown"
-                        
-                        # Parse the output for key properties
-                        for line in info_output.splitlines():
-                            if "Disk Size:" in line:
-                                try:
-                                    size_parts = line.split("(")
-                                    if len(size_parts) > 1:
-                                        gb_part = size_parts[1].split()
-                                        size_gb = gb_part[0]
-                                except Exception:
-                                    pass
-                            elif "Device / Media Name:" in line:
-                                try:
-                                    disk_name = line.split("Device / Media Name:")[1].strip()
-                                except Exception:
-                                    pass
-                            elif "Internal:" in line:
-                                is_internal = "Yes" in line
-                            elif "Removable Media:" in line:
-                                is_removable = "Yes" in line or "Removable" in line
-                        
-                        # Create display info
-                        disk_type = "INTERNAL" if is_internal else "EXTERNAL"
-                        removable = "REMOVABLE" if is_removable else "FIXED"
-                        
-                        display_text = f"{disk_type} {removable}: {disk_name} ({size_gb}) - {device_path}"
-                        all_disk_info.append({
-                            "display_text": display_text,
-                            "device_path": device_path,
-                            "is_internal": is_internal,
-                            "is_removable": is_removable
-                        })
-                        
-                    except Exception as e:
-                        logger.error(f"Error getting info for {disk_id}: {e}")
-                        
+                if not all_disk_info:
+                    logger.warning("No disks found in diskutil output")
+                    self.log("No disks found. Try using the Refresh button instead.")
+                    return
+                    
             elif sys.platform.startswith('linux'):  # Linux
                 # Use lsblk to get all disks
                 output = subprocess.check_output(
@@ -807,7 +801,8 @@ class FlashTool(QtWidgets.QMainWindow):
                             "display_text": display_text,
                             "device_path": device_path,
                             "is_internal": not is_removable,
-                            "is_removable": is_removable
+                            "is_removable": is_removable,
+                            "size_gb": 0  # Size parsing would need to be implemented for Linux
                         })
             
             # Create a dialog to display and select from the list of disks
@@ -830,8 +825,8 @@ class FlashTool(QtWidgets.QMainWindow):
             
             # Create a table to display the disk information
             table = QtWidgets.QTableWidget()
-            table.setColumnCount(4)
-            table.setHorizontalHeaderLabels(["Disk", "Type", "Removable", "Select"])
+            table.setColumnCount(5)
+            table.setHorizontalHeaderLabels(["Disk", "Type", "Removable", "Size", "Select"])
             table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
             table.setRowCount(len(all_disk_info))
             
@@ -860,13 +855,19 @@ class FlashTool(QtWidgets.QMainWindow):
                     removable_item.setBackground(QtGui.QColor(255, 200, 200))  # Light red for fixed
                 table.setItem(i, 2, removable_item)
                 
+                # Size cell
+                size_text = f"{disk['size_gb']:.1f} GB" if disk['size_gb'] > 0 else "N/A"
+                size_item = QtWidgets.QTableWidgetItem(size_text)
+                size_item.setFlags(size_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                table.setItem(i, 3, size_item)
+                
                 # Select button cell
                 select_btn = QtWidgets.QPushButton("Select")
                 select_btn.clicked.connect(lambda checked, path=disk["device_path"]: self.select_disk_from_dialog(dialog, path))
                 if disk["is_internal"]:
                     select_btn.setStyleSheet("background-color: red; color: white;")
                     select_btn.setToolTip("WARNING: This appears to be an internal disk!")
-                table.setCellWidget(i, 3, select_btn)
+                table.setCellWidget(i, 4, select_btn)
             
             layout.addWidget(table)
             
@@ -880,7 +881,12 @@ class FlashTool(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Error showing all disks: {e}")
             self.log(f"Error showing all disks: {str(e)}")
-            
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to show disks: {str(e)}\n\nTry using the Refresh button instead."
+            )
+
     def select_disk_from_dialog(self, dialog, device_path):
         """Select a disk from the dialog and add it to the device combo box"""
         # Confirmation dialog for safety
