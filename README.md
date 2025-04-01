@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/yourusername/picocalc-sd-flasher/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/yourusername/picocalc-sd-formatter/releases)
 [![Powered by Cursor](https://img.shields.io/badge/Powered%20by-Cursor-blue?style=flat&logo=cursor&logoColor=white)](https://cursor.sh)
 
 A GUI tool for formatting SD cards for use with the PicoCalc device. This tool creates the correct partition layout required by the PicoCalc operating system.
@@ -59,7 +59,7 @@ The tool creates two partitions on your SD card:
 
 ### Installation for Users
 
-1. Download the latest release for your platform from the [GitHub Releases](https://github.com/yourusername/picocalc-sd-flasher/releases) page
+1. Download the latest release for your platform from the [GitHub Releases](https://github.com/yourusername/picocalc-sd-formatter/releases) page
 
 2. Extract the zip file
 
@@ -76,8 +76,8 @@ The tool creates two partitions on your SD card:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/picocalc-sd-flasher.git
-   cd picocalc-sd-flasher
+   git clone https://github.com/yourusername/picocalc-sd-formatter.git
+   cd picocalc-sd-formatter
    ```
 
 2. Install dependencies:

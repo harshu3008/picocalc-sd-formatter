@@ -18,17 +18,17 @@ def setup_logging():
         # Use a temporary directory for logs if we can't write to the preferred location
         if sys.platform == 'darwin':
             # Try to use ~/Library/Logs first
-            preferred_logs_dir = os.path.expanduser('~/Library/Logs/PicoCalc-SD-Flasher')
+            preferred_logs_dir = os.path.expanduser('~/Library/Logs/PicoCalc-SD-Formatter')
             try:
                 os.makedirs(preferred_logs_dir, mode=0o700, exist_ok=True)
                 logs_dir = preferred_logs_dir
             except (OSError, IOError):
                 # Fall back to temporary directory
-                logs_dir = os.path.join(tempfile.gettempdir(), 'PicoCalc-SD-Flasher-Logs')
+                logs_dir = os.path.join(tempfile.gettempdir(), 'PicoCalc-SD-Formatter-Logs')
                 os.makedirs(logs_dir, mode=0o700, exist_ok=True)
         else:
-            # On other platforms, use ~/.picocalc-sd-flasher/logs/
-            logs_dir = os.path.expanduser('~/.picocalc-sd-flasher/logs')
+            # On other platforms, use ~/.picocalc-sd-formatter/logs/
+            logs_dir = os.path.expanduser('~/.picocalc-sd-formatter/logs')
             os.makedirs(logs_dir, mode=0o700, exist_ok=True)
         
         # Configure logging
