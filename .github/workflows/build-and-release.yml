@@ -10,6 +10,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            executable: PicoCalc-SD-Formatter.exe
+          - os: macos-latest
+            executable: PicoCalc-SD-Formatter.app
+          - os: ubuntu-latest
+            executable: PicoCalc-SD-Formatter
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -41,16 +48,29 @@ jobs:
       run: |
         python build.py
 
+    - name: Verify build output
+      shell: bash
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          test -f "dist/${{ matrix.executable }}" || { echo "Build failed: Windows executable not found"; exit 1; }
+        elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+          test -d "dist/${{ matrix.executable }}" || { echo "Build failed: macOS app bundle not found"; exit 1; }
+        else
+          test -f "dist/${{ matrix.executable }}" || { echo "Build failed: Linux executable not found"; exit 1; }
+        fi
+
     - name: List build output
       shell: bash
       run: |
         ls -la dist/
-        
+
     - name: Upload executable files
       uses: actions/upload-artifact@v4
       with:
         name: executables-${{ matrix.os }}
-        path: dist/
+        path: |
+          dist/${{ matrix.executable }}
+          dist/VERSION.txt
         if-no-files-found: error
         retention-days: 5
 
