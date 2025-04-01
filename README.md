@@ -1,76 +1,89 @@
-# PicoCalc SD Card Flasher
+# PicoCalc SD Card Preparation Tool
 
-A GUI tool for flashing SD cards with PicoCalc firmware.
-
-## Project Structure
-
-```
-.
-├── flash_tool.py      # Main application
-├── validation.py      # Validation logic
-├── test_validation.py # Test suite
-├── logs/             # Log files directory
-│   └── .gitkeep      # Keeps logs directory in git
-└── .gitignore        # Git ignore rules
-```
-
-## Logging
-
-Logs are stored in the `logs/` directory. The main application log file is `logs/flash_tool.log`. Log files are not versioned in git but the `logs/` directory is maintained to ensure proper directory structure.
-
-## Development
-
-1. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Unix/macOS
-   # or
-   .\venv\Scripts\activate  # On Windows
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Run the application:
-   ```bash
-   python flash_tool.py
-   ```
-
-4. Run tests:
-   ```bash
-   python -m unittest test_validation.py
-   ```
-
-## Requirements
-
-- Python 3.6+
-- PyQt6
-- Platform-specific tools:
-  - Linux: `parted`, `mkfs.fat`, `lsblk`
-  - macOS: `diskutil`, `newfs_msdos`
+A Qt-based graphical tool for preparing SD cards for the PicoCalc device.
 
 ## Features
 
-- Detects removable storage devices (SD cards)
-- Partitions the SD card (FAT32 + Linux ext4)
-- Formats the partitions correctly
-- Flashes firmware to the Linux partition
+- Cross-platform support (Linux and macOS)
+- Automatic device detection
+- Partition creation and formatting
+- Firmware flashing
+- Validation and verification
+- Progress reporting and real-time status updates
+- Safe abort functionality
+
+## Enhanced Safety Features
+
+- System disk protection to prevent accidental data loss
+- Comprehensive validation of target devices
+- Secure privilege elevation
+- Write protection detection
+- Multiple confirmation steps for destructive operations
+
+## Flash Memory Optimizations
+
+- Proper partition alignment for optimal performance
+- Flash parameter validation
+- Optimal I/O size detection
+- Safe block sizes for minimizing flash wear
+
+## Prerequisites
+
+- Linux or macOS
+- Python 3.6+
+- Qt6 (PyQt6)
+- Required system tools:
+  - Linux: `parted`, `mkfs.fat`, `dd`, `lsblk`, `blockdev`
+  - macOS: `diskutil`, `newfs_msdos`, `dd`
+
+## Installation
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/username/picocalc-sd-flasher.git
+   cd picocalc-sd-flasher
+   ```
+
+2. Install Python dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
 
 ## Usage
 
-1. Insert your SD card
-2. Launch the application:
+1. Run the application:
+   ```
+   python flash_tool.py
+   ```
 
-```bash
-./flash_tool.py
+2. Select your target SD card device
+3. Select or use the default firmware image
+4. Click "Flash SD Card"
+5. Follow the on-screen instructions
+
+## Error Recovery
+
+If you encounter any issues during the flashing process:
+
+1. Check the log output for specific error messages
+2. Ensure your SD card is not write-protected
+3. Verify you have appropriate permissions
+4. Try a different SD card if problems persist
+
+## Development
+
+### Running Tests
+
+```
+python -m unittest test_validation.py
 ```
 
-3. Select your SD card from the dropdown
-4. (Optional) Select a custom firmware image file
-5. Click "Flash SD Card"
+### Code Structure
 
-## Warning
+- `flash_tool.py` - Main application and UI
+- `validation.py` - SD card validation routines
+- `test_validation.py` - Unit tests
 
-This application will erase ALL data on the selected SD card. Make sure to backup any important data before using this tool. 
+## License
+
+[Add your license information here] 
