@@ -114,10 +114,10 @@ class FlashTool(QtWidgets.QMainWindow):
                             label = disk_info.get('VolumeName', disk_identifier)
                             
                             display_text = f"{label} ({size_gb:.2f} GB) - {device_path}"
-                            logger.debug(f"Found potential device: {display_text}")
+                            logger.debug("Found potential device: %s", display_text)
                             self.device_combo.addItem(display_text, device_path)
                     except Exception as detail_error:
-                        logger.error(f"Could not get detailed info for {disk_identifier}: {detail_error}", exc_info=True)
+                        logger.error("Failed to get details for %s: %s", disk_identifier, detail_error, exc_info=True)
                         self.log(f"Could not get info for {disk_identifier}: {detail_error}")
             
             elif sys.platform.startswith('linux'): # Linux
@@ -132,28 +132,28 @@ class FlashTool(QtWidgets.QMainWindow):
                         # This is a removable disk
                         device_path = parts[0]
                         size = parts[1]
-                        logger.debug(f"Found potential device: {device_path} ({size})")
+                        logger.debug("Found potential device: %s (%s)", device_path, size)
                         self.device_combo.addItem(f"{device_path} ({size})", device_path)
             
             else:
-                logger.warning(f"Unsupported platform detected: {sys.platform}")
+                logger.warning("Unsupported platform detected: %s", sys.platform)
                 self.log(f"Unsupported platform: {sys.platform}")
                     
             if self.device_combo.count() == 0:
                 logger.info("No removable devices found after search.")
                 self.log("No removable devices found.")
             else:
-                logger.info(f"Found {self.device_combo.count()} potential device(s).")
+                logger.info("Found %d potential devices.", self.device_combo.count())
                 
         except FileNotFoundError as fnf_error:
             if 'diskutil' in str(fnf_error) or 'lsblk' in str(fnf_error):
-                 logger.error(f"Required command not found: {fnf_error.filename}. Please ensure it's installed.", exc_info=True)
+                 logger.error("Command %s not found. Please install.", fnf_error.filename, exc_info=True)
                  self.log(f"Error: Required command not found ({fnf_error.filename}). Please install it.")
             else:
-                 logger.error(f"Error detecting devices (FileNotFoundError): {fnf_error}", exc_info=True)
+                 logger.error("Error detecting devices: %s", fnf_error, exc_info=True)
                  self.log(f"Error detecting devices: {str(fnf_error)}")
         except Exception as e:
-            logger.error(f"An unexpected error occurred during device detection: {e}", exc_info=True)
+            logger.error("Device detection error: %s", e, exc_info=True)
             self.log(f"Error detecting devices: {str(e)}")
         logger.info("Device refresh finished.")
 
@@ -170,7 +170,7 @@ class FlashTool(QtWidgets.QMainWindow):
         if file_path:
             self.firmware_path = file_path
             self.firmware_label.setText(os.path.basename(file_path))
-            logger.info(f"User selected firmware: {file_path}")
+            logger.info("User selected firmware: %s", file_path)
             self.log(f"Selected firmware: {file_path}")
         else:
             logger.info("Firmware selection cancelled by user.")
@@ -184,8 +184,8 @@ class FlashTool(QtWidgets.QMainWindow):
             return
 
         device = self.device_combo.currentData()
-        logger.info(f"Target device selected: {device}")
-        logger.warning(f"Data on {device} will be erased.")
+        logger.info("Target device selected: %s", device)
+        logger.warning("Data on %s will be erased.", device)
         self.log(f"WARNING: This will ERASE ALL DATA on {device}!")
         self.log("Starting flash process...")
 
@@ -195,50 +195,50 @@ class FlashTool(QtWidgets.QMainWindow):
 
         try:
             # Step 1: Partitioning
-            logger.info(f"Step 1: Partitioning {device}")
+            logger.info("Step 1: Partitioning %s", device)
             self.log(f"Unmounting {device} if mounted...")
             # Use run_command for consistency and logging
-            logger.debug(f"Attempting to unmount {device}")
+            logger.debug("Attempting to unmount %s", device)
             self.run_command(f"sudo umount {device}?* || true", check_return_code=False) # Allow failure if not mounted
-            logger.debug(f"Unmount command finished for {device}")
+            logger.debug("Unmount command finished for %s", device)
 
             self.log(f"Creating partition table on {device}...")
-            logger.debug(f"Running parted mklabel msdos on {device}")
+            logger.debug("Running parted mklabel msdos on %s", device)
             self.run_command(f"sudo parted -s {device} mklabel msdos")
-            logger.debug(f"Partition table created on {device}")
+            logger.debug("Partition table created on %s", device)
 
             self.log("Creating partitions...")
             # Creating FAT32 partition
-            logger.info(f"Creating FAT32 partition on {device} (1MiB to -33MiB).")
+            logger.info("Creating FAT32 partition on %s.", device)
             self.run_command(
                 f"sudo parted -s {device} mkpart primary fat32 1MiB -33MiB"
             )
-            logger.debug(f"FAT32 partition created on {device}")
+            logger.debug("FAT32 partition created on %s", device)
              # Creating ext4 partition
-            logger.info(f"Creating ext4 partition on {device} (-33MiB to 100%).")
+            logger.info("Creating ext4 partition on %s.", device)
             self.run_command(f"sudo parted -s {device} mkpart primary ext4 -33MiB 100%")
-            logger.debug(f"Ext4 partition created on {device}")
+            logger.debug("Ext4 partition created on %s", device)
             logger.info("Partitioning complete.")
 
             # Step 2: Formatting
-            logger.info(f"Step 2: Formatting partitions on {device}")
+            logger.info("Step 2: Formatting partitions on %s", device)
             self.log("Formatting FAT32 partition...")
             fat_partition = f"{device}p1" if sys.platform.startswith('linux') else f"{device}s1" # Adjust partition naming
-            logger.info(f"Formatting {fat_partition} as FAT32.")
+            logger.info("Formatting %s as FAT32.", fat_partition)
             self.run_command(f"sudo mkfs.fat -F32 {fat_partition}")
-            logger.debug(f"FAT32 partition formatted ({fat_partition})")
+            logger.debug("Formatted %s as FAT32.", fat_partition)
 
             self.log("Formatting ext4 partition...")
             ext4_partition = f"{device}p2" if sys.platform.startswith('linux') else f"{device}s2" # Adjust partition naming
-            logger.info(f"Formatting {ext4_partition} as ext4.")
+            logger.info("Formatting %s as ext4.", ext4_partition)
             self.run_command(f"sudo mkfs.ext4 -F {ext4_partition}")
-            logger.debug(f"Ext4 partition formatted ({ext4_partition})")
+            logger.debug("Formatted %s as ext4.", ext4_partition)
             logger.info("Formatting complete.")
 
             # Step 3: Flashing firmware
-            logger.info(f"Step 3: Flashing firmware to {ext4_partition}")
+            logger.info("Step 3: Flashing firmware to %s", ext4_partition)
             self.log(f"Flashing firmware '{os.path.basename(self.firmware_path)}' to {ext4_partition}...")
-            logger.debug(f"Running dd command: sudo dd if='{self.firmware_path}' of='{ext4_partition}' bs=4M status=progress")
+            logger.debug("Running dd command to flash %s", ext4_partition)
             self.run_command(
                 f"sudo dd if='{self.firmware_path}' of='{ext4_partition}' bs=4M status=progress"
             )
@@ -247,7 +247,7 @@ class FlashTool(QtWidgets.QMainWindow):
             self.log("Flash completed successfully!")
             logger.info("Flash process completed successfully.")
         except Exception as e:
-            logger.error(f"Error during flashing process: {e}", exc_info=True)
+            logger.error("Flashing error: %s", e, exc_info=True)
             self.log(f"Error during flashing: {str(e)}")
         finally:
             # Re-enable UI
@@ -256,7 +256,7 @@ class FlashTool(QtWidgets.QMainWindow):
 
     def run_command(self, cmd, check_return_code=True):
         """Run a shell command and log output"""
-        logger.info(f"Executing command: {cmd}")
+        logger.info("Executing command: %s", cmd)
         self.log(f"Running: {cmd}")
         try:
             # Use Popen to potentially stream output later if needed, but capture for now
@@ -265,29 +265,29 @@ class FlashTool(QtWidgets.QMainWindow):
 
             if stdout:
                 # Log stdout as debug, keep showing in GUI via self.log
-                logger.debug(f"Command stdout:\n{stdout.strip()}")
+                logger.debug("Command stdout: %s", stdout.strip())
                 self.log(stdout.strip()) # Show command output in GUI too
 
             if stderr:
                  # dd writes status to stderr, treat as info unless return code is non-zero
                 if "status=progress" in cmd and process.returncode == 0:
                     # Log progress as info, don't clutter GUI unless needed
-                    logger.info(f"Command stderr (progress):\n{stderr.strip()}")
+                    logger.info("Command progress: %s", stderr.strip())
                     # self.log(f"Progress: {stderr.strip()}") # Optionally show progress in GUI
                 else:
                     # Log actual errors as warning, show in GUI
-                    logger.warning(f"Command stderr:\n{stderr.strip()}")
+                    logger.warning("Command stderr: %s", stderr.strip())
                     self.log(f"Error output: {stderr.strip()}") # Show errors in GUI
 
             if check_return_code and process.returncode != 0:
-                logger.error(f"Command failed with return code {process.returncode}: {cmd}")
+                logger.error("Command failed with return code %d: %s", process.returncode, cmd)
                 self.log(f"Command failed with return code: {process.returncode}")
                 raise Exception(f"Command failed: {cmd}")
             else:
-                 logger.info(f"Command finished successfully (return code {process.returncode}): {cmd}")
+                 logger.info("Command finished (code %d): %s", process.returncode, cmd)
 
         except Exception as e:
-            logger.error(f"Failed to run command '{cmd}': {e}", exc_info=True)
+            logger.error("Command execution failed '%s': %s", cmd, e, exc_info=True)
             self.log(f"Failed to execute command: {cmd}")
             raise # Re-raise the exception to be caught by flash_card
 
@@ -305,5 +305,5 @@ if __name__ == "__main__":
     window.show()
     logger.info("Entering main application event loop.")
     exit_code = app.exec()
-    logger.info(f"Application exiting with code {exit_code}.")
+    logger.info("Application exiting with code %d.", exit_code)
     sys.exit(exit_code)
