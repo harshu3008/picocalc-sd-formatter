@@ -22,7 +22,7 @@ def build_executable():
     # Base PyInstaller command
     cmd = [
         'pyinstaller',
-        '--name=PicoCalc-SD-Flasher',  # Name of the executable
+        '--name=PicoCalc-SD-Formatter',  # Name of the executable
         '--windowed',  # Don't show console window
         '--onefile',  # Create a single executable file
         '--clean',  # Clean PyInstaller cache
@@ -60,7 +60,7 @@ def build_executable():
         print("Including assets directory")
     
     # Add the main script
-    cmd.append('flash_tool.py')
+    cmd.append('sd_formatter.py')
     
     # Run PyInstaller
     subprocess.run(cmd, check=True)
@@ -93,16 +93,16 @@ def create_release_package():
     
     # Copy executable and necessary files
     if sys.platform == 'darwin':
-        shutil.copytree('dist/PicoCalc-SD-Flasher.app', os.path.join(release_dir, 'PicoCalc-SD-Flasher.app'))
+        shutil.copytree('dist/PicoCalc-SD-Formatter.app', os.path.join(release_dir, 'PicoCalc-SD-Formatter.app'))
     else:
-        shutil.copy('dist/PicoCalc-SD-Flasher', release_dir)
+        shutil.copy('dist/PicoCalc-SD-Formatter', release_dir)
     
     shutil.copy('dist/VERSION.txt', release_dir)
     shutil.copy('README.md', release_dir)
     
     # Create a zip file of the release
     shutil.make_archive(
-        f'PicoCalc-SD-Flasher-v1.0.0-{sys.platform}',
+        f'PicoCalc-SD-Formatter-v1.0.0-{sys.platform}',
         'zip',
         release_dir
     )

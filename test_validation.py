@@ -188,7 +188,7 @@ class TestSDCardValidator(unittest.TestCase):
     @patch('subprocess.run')
     def test_write_protection(self, mock_run):
         """Test write protection detection with mocks"""
-        # This is a test for the flash_tool.py implementation
+        # This is a test for the sd_formatter.py implementation
         # We'll add a method to SDCardValidator to test it
         
         # Add write protection check method to validator for testing

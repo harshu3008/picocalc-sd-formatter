@@ -32,7 +32,7 @@ def setup_logging():
             os.makedirs(logs_dir, mode=0o700, exist_ok=True)
         
         # Configure logging
-        log_file = os.path.join(logs_dir, 'flash_tool.log')
+        log_file = os.path.join(logs_dir, 'sd_formatter.log')
         
         # Create or touch the log file to ensure proper permissions
         with open(log_file, 'a') as f:

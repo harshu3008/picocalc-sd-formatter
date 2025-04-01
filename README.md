@@ -89,7 +89,7 @@ The tool creates two partitions on your SD card:
 3. Run the tool:
 
    ```bash
-   python flash_tool.py
+   python sd_formatter.py
    ```
 
 4. Build the executable (optional):
