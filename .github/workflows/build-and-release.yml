@@ -7,7 +7,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
       packages: write
@@ -32,13 +35,12 @@ jobs:
 
     - name: Run build script
       run: |
-        chmod +x build.py
         python build.py
 
     - name: Upload executable files
       uses: actions/upload-artifact@v4
       with:
-        name: executables
+        name: executables-${{ matrix.os }}
         path: dist/
         retention-days: 5
 
@@ -55,11 +57,14 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Download artifact
+    - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
-        name: executables
         path: dist
+        merge-multiple: true
+
+    - name: Display structure of downloaded files
+      run: ls -R dist/
 
     - name: Get release notes
       id: get_release_notes
@@ -88,7 +93,8 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: dist/**
+        files: |
+          dist/**/*
         name: Release ${{ github.ref_name }}
         body: ${{ steps.get_release_notes.outputs.notes }}
         draft: false
