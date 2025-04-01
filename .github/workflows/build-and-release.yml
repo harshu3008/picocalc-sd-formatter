@@ -33,15 +33,25 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
+    - name: Create dist directory
+      run: |
+        mkdir -p dist
+
     - name: Run build script
       run: |
         python build.py
 
+    - name: List build output
+      shell: bash
+      run: |
+        ls -la dist/
+        
     - name: Upload executable files
       uses: actions/upload-artifact@v4
       with:
         name: executables-${{ matrix.os }}
         path: dist/
+        if-no-files-found: error
         retention-days: 5
 
   release:
@@ -64,7 +74,10 @@ jobs:
         merge-multiple: true
 
     - name: Display structure of downloaded files
-      run: ls -R dist/
+      shell: bash
+      run: |
+        ls -R dist/
+        find dist/ -type f
 
     - name: Get release notes
       id: get_release_notes
