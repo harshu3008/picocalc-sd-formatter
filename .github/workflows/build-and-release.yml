@@ -72,10 +72,10 @@ jobs:
           RELEASE_NOTES=$(git log --pretty=format:"* %s" $TAG_NAME)
         fi
         
-        echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-        echo "## Changes in $TAG_NAME" >> $GITHUB_ENV
-        echo "" >> $GITHUB_ENV
-        echo "$RELEASE_NOTES" >> $GITHUB_ENV
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        echo "## Changes in $TAG_NAME" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
         echo "EOF"
 
     - name: Create Release
@@ -83,7 +83,7 @@ jobs:
       with:
         files: dist/**
         name: Release ${{ github.ref_name }}
-        body: ${{ env.RELEASE_NOTES }}
+        body: ${{ steps.get_release_notes.outputs.notes }}
         draft: false
         prerelease: false
       env:
