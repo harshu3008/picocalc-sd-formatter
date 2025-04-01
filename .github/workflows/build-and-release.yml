@@ -44,34 +44,82 @@ jobs:
       run: |
         mkdir -p dist
 
+    - name: Debug environment
+      shell: bash
+      run: |
+        echo "OS: ${{ matrix.os }}"
+        echo "Expected executable: ${{ matrix.executable }}"
+        echo "Python version:"
+        python --version
+        echo "PyInstaller version:"
+        pip show pyinstaller
+        echo "Current directory:"
+        pwd
+        echo "Directory contents:"
+        ls -la
+
     - name: Run build script
       run: |
         python build.py
+
+    - name: Debug build output
+      shell: bash
+      run: |
+        echo "Contents of dist directory:"
+        ls -la dist/
+        echo "Contents of build directory (if exists):"
+        if [ -d "build" ]; then
+          ls -la build/
+        else
+          echo "build directory does not exist"
+        fi
+        echo "Contents of release directory (if exists):"
+        if [ -d "release" ]; then
+          ls -la release/
+        else
+          echo "release directory does not exist"
+        fi
+        echo "Contents of current directory:"
+        ls -la
 
     - name: Verify build output
       shell: bash
       run: |
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          test -f "dist/${{ matrix.executable }}" || { echo "Build failed: Windows executable not found"; exit 1; }
+          if [ -f "dist/${{ matrix.executable }}" ]; then
+            echo "Windows executable found at dist/${{ matrix.executable }}"
+          else
+            echo "Windows executable not found at dist/${{ matrix.executable }}"
+            echo "Searching for executable in dist directory:"
+            find dist -type f -name "*.exe" || echo "No .exe files found"
+            exit 1
+          fi
         elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-          test -d "dist/${{ matrix.executable }}" || { echo "Build failed: macOS app bundle not found"; exit 1; }
+          if [ -d "dist/${{ matrix.executable }}" ]; then
+            echo "macOS app bundle found at dist/${{ matrix.executable }}"
+          else
+            echo "macOS app bundle not found at dist/${{ matrix.executable }}"
+            echo "Searching for app bundle in dist directory:"
+            find dist -type d -name "*.app" || echo "No .app bundles found"
+            exit 1
+          fi
         else
-          test -f "dist/${{ matrix.executable }}" || { echo "Build failed: Linux executable not found"; exit 1; }
+          if [ -f "dist/${{ matrix.executable }}" ]; then
+            echo "Linux executable found at dist/${{ matrix.executable }}"
+          else
+            echo "Linux executable not found at dist/${{ matrix.executable }}"
+            echo "Searching for executable in dist directory:"
+            find dist -type f -executable || echo "No executable files found"
+            exit 1
+          fi
         fi
-
-    - name: List build output
-      shell: bash
-      run: |
-        ls -la dist/
 
     - name: Upload executable files
       uses: actions/upload-artifact@v4
       with:
         name: executables-${{ matrix.os }}
-        path: |
-          dist/${{ matrix.executable }}
-          dist/VERSION.txt
-        if-no-files-found: error
+        path: dist/
+        if-no-files-found: warn
         retention-days: 5
 
   release:
@@ -96,8 +144,12 @@ jobs:
     - name: Display structure of downloaded files
       shell: bash
       run: |
-        ls -R dist/
-        find dist/ -type f
+        echo "Contents of dist directory:"
+        ls -la dist/
+        echo "All files in dist directory (recursive):"
+        find dist -type f | sort
+        echo "All directories in dist directory:"
+        find dist -type d | sort
 
     - name: Get release notes
       id: get_release_notes

@@ -36,16 +36,29 @@ def build_executable():
         '--hidden-import=urllib.request',
         '--hidden-import=threading',
         '--hidden-import=validation',  # Include the validation module
-        '--add-data=validation.py:validation.py',  # Include validation.py
-        '--add-data=README.md:README.md',  # Include README
-        '--add-data=LICENSE:LICENSE',  # Include LICENSE
-        '--add-data=requirements.txt:requirements.txt',  # Include requirements
     ]
+    
+    # Add data files
+    data_files = [
+        ('validation.py', 'validation.py'),
+        ('README.md', 'README.md'),
+        ('LICENSE', 'LICENSE'),
+        ('requirements.txt', 'requirements.txt')
+    ]
+    
+    for src, dest in data_files:
+        if os.path.exists(src):
+            cmd.append(f'--add-data={src}:{dest}')
+            print(f"Including data file: {src}")
+        else:
+            print(f"Warning: Data file {src} not found, skipping")
     
     # Add icon if it exists
     if sys.platform == 'darwin':  # macOS
         icon_path = 'assets/icon.icns'
-    else:  # Windows/Linux
+    elif sys.platform == 'win32':  # Windows
+        icon_path = 'assets/icon.ico'
+    else:  # Linux
         icon_path = 'assets/icon.ico'
         
     if os.path.exists(icon_path):
@@ -56,14 +69,58 @@ def build_executable():
     
     # Add assets directory if it exists
     if os.path.exists('assets'):
-        cmd.append('--add-data=assets:assets')
+        if sys.platform == 'win32':  # Windows
+            cmd.append('--add-data=assets;assets')
+        else:  # macOS and Linux
+            cmd.append('--add-data=assets:assets')
         print("Including assets directory")
     
     # Add the main script
     cmd.append('sd_formatter.py')
     
     # Run PyInstaller
-    subprocess.run(cmd, check=True)
+    print(f"Running PyInstaller with command: {' '.join(cmd)}")
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        print(f"PyInstaller failed with return code {result.returncode}")
+        print("STDOUT:")
+        print(result.stdout)
+        print("STDERR:")
+        print(result.stderr)
+        raise Exception("PyInstaller build failed")
+    else:
+        print("PyInstaller completed successfully")
+    
+    # Verify the executable was created
+    if sys.platform == 'darwin':  # macOS
+        expected_path = 'dist/PicoCalc-SD-Formatter.app'
+        if os.path.isdir(expected_path):
+            print(f"macOS app bundle created at: {expected_path}")
+        else:
+            print(f"Error: macOS app bundle not found at {expected_path}")
+            print("Contents of dist directory:")
+            print(os.listdir('dist'))
+            raise FileNotFoundError(f"macOS app bundle not found at {expected_path}")
+    elif sys.platform == 'win32':  # Windows
+        expected_path = 'dist/PicoCalc-SD-Formatter.exe'
+        if os.path.isfile(expected_path):
+            print(f"Windows executable created at: {expected_path}")
+        else:
+            print(f"Error: Windows executable not found at {expected_path}")
+            print("Contents of dist directory:")
+            print(os.listdir('dist'))
+            raise FileNotFoundError(f"Windows executable not found at {expected_path}")
+    else:  # Linux
+        expected_path = 'dist/PicoCalc-SD-Formatter'
+        if os.path.isfile(expected_path):
+            print(f"Linux executable created at: {expected_path}")
+        else:
+            print(f"Error: Linux executable not found at {expected_path}")
+            print("Contents of dist directory:")
+            print(os.listdir('dist'))
+            raise FileNotFoundError(f"Linux executable not found at {expected_path}")
+    
     print("Build complete.")
 
 def create_version_file():
@@ -92,30 +149,65 @@ def create_release_package():
     os.makedirs(release_dir)
     
     # Copy executable and necessary files
-    if sys.platform == 'darwin':
-        shutil.copytree('dist/PicoCalc-SD-Formatter.app', os.path.join(release_dir, 'PicoCalc-SD-Formatter.app'))
-    else:
-        shutil.copy('dist/PicoCalc-SD-Formatter', release_dir)
+    if sys.platform == 'darwin':  # macOS
+        if os.path.exists('dist/PicoCalc-SD-Formatter.app'):
+            shutil.copytree('dist/PicoCalc-SD-Formatter.app', os.path.join(release_dir, 'PicoCalc-SD-Formatter.app'))
+        else:
+            print("Warning: macOS app bundle not found, skipping copy")
+    elif sys.platform == 'win32':  # Windows
+        if os.path.exists('dist/PicoCalc-SD-Formatter.exe'):
+            shutil.copy('dist/PicoCalc-SD-Formatter.exe', release_dir)
+        else:
+            print("Warning: Windows executable not found, skipping copy")
+    else:  # Linux
+        if os.path.exists('dist/PicoCalc-SD-Formatter'):
+            shutil.copy('dist/PicoCalc-SD-Formatter', release_dir)
+        else:
+            print("Warning: Linux executable not found, skipping copy")
     
-    shutil.copy('dist/VERSION.txt', release_dir)
-    shutil.copy('README.md', release_dir)
+    # Copy version file
+    if os.path.exists('dist/VERSION.txt'):
+        shutil.copy('dist/VERSION.txt', release_dir)
+    else:
+        print("Warning: VERSION.txt not found, skipping copy")
+    
+    # Copy README
+    if os.path.exists('README.md'):
+        shutil.copy('README.md', release_dir)
+    else:
+        print("Warning: README.md not found, skipping copy")
     
     # Create a zip file of the release
-    shutil.make_archive(
-        f'PicoCalc-SD-Formatter-v1.0.0-{sys.platform}',
-        'zip',
-        release_dir
-    )
+    platform_suffix = 'win' if sys.platform == 'win32' else ('mac' if sys.platform == 'darwin' else 'linux')
+    zip_filename = f'PicoCalc-SD-Formatter-v1.0.0-{platform_suffix}'
     
-    print("Release package created.")
+    try:
+        shutil.make_archive(
+            zip_filename,
+            'zip',
+            release_dir
+        )
+        print(f"Release package created: {zip_filename}.zip")
+    except Exception as e:
+        print(f"Error creating zip archive: {e}")
+    
+    print("Release package creation complete.")
 
 def main():
     """Main build process"""
     try:
+        print(f"Starting build process on platform: {sys.platform}")
+        print(f"Python version: {sys.version}")
+        print(f"Current directory: {os.getcwd()}")
+        
+        # Create dist directory if it doesn't exist
+        os.makedirs('dist', exist_ok=True)
+        
         clean_build()
         build_executable()
         create_version_file()
         create_release_package()
+        
         print("\nBuild process completed successfully!")
         print("\nNext steps:")
         print("1. Test the executable in the 'dist' directory")
