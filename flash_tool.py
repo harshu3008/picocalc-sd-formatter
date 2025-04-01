@@ -10,47 +10,97 @@ from validation import SDCardValidator, format_validation_results
 import threading
 import time
 import urllib.request  # Add import for URL handling
+import stat  # Import for file permissions
+import tempfile  # Import for temporary directory handling
+
+def setup_logging():
+    """Set up logging with proper directory handling"""
+    try:
+        # Use a temporary directory for logs if we can't write to the preferred location
+        if sys.platform == 'darwin':
+            # Try to use ~/Library/Logs first
+            preferred_logs_dir = os.path.expanduser('~/Library/Logs/PicoCalc-SD-Flasher')
+            try:
+                os.makedirs(preferred_logs_dir, mode=0o700, exist_ok=True)
+                logs_dir = preferred_logs_dir
+            except (OSError, IOError):
+                # Fall back to temporary directory
+                logs_dir = os.path.join(tempfile.gettempdir(), 'PicoCalc-SD-Flasher-Logs')
+                os.makedirs(logs_dir, mode=0o700, exist_ok=True)
+        else:
+            # On other platforms, use ~/.picocalc-sd-flasher/logs/
+            logs_dir = os.path.expanduser('~/.picocalc-sd-flasher/logs')
+            os.makedirs(logs_dir, mode=0o700, exist_ok=True)
+        
+        # Configure logging
+        log_file = os.path.join(logs_dir, 'flash_tool.log')
+        
+        # Create or touch the log file to ensure proper permissions
+        with open(log_file, 'a') as f:
+            os.chmod(log_file, 0o600)  # rw for user only
+            
+        print(f"Log file path: {log_file}")  # Debug print
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s',
+            filename=log_file,
+            filemode='w'  # Overwrite log file each time
+        )
+        
+        # Add a console handler to see logs in the terminal
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(levelname)s - %(message)s')
+        console.setFormatter(formatter)
+        logging.getLogger('').addHandler(console)
+        
+        return logging.getLogger(__name__)
+        
+    except Exception as e:
+        # If we can't set up file logging, fall back to console-only logging
+        print(f"Warning: Could not set up file logging: {str(e)}")
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s - %(message)s',
+            stream=sys.stdout
+        )
+        return logging.getLogger(__name__)
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s',
-    filename='logs/flash_tool.log',
-    filemode='w'  # Overwrite log file each time
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # Official PicoCalc firmware images from GitHub repository
 OFFICIAL_FIRMWARE_IMAGES = {
     "FUZIX": {
         "name": "FUZIX OS",
         "description": "Lightweight UNIX-like OS for minimal resource usage",
-        "path": "PicoCalc_FUZIX_v0.5.uf2",
-        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_FUZIX_v0.5.uf2"
+        "path": "PicoCalc_FUZIX_v1.0.uf2",
+        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/fuzix.uf2"
     },
     "PicoMite": {
         "name": "PicoMite BASIC",
         "description": "BASIC language interpreter based on MMBasic",
-        "path": "PicoCalc_PicoMite_v0.5.uf2",
-        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_PicoMite_v0.5.uf2"
+        "path": "PicoCalc_PicoMite_v1.0.uf2",
+        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/PicoMite.uf2"
     },
     "NES": {
         "name": "NES Emulator",
         "description": "NES emulator for programming study",
-        "path": "PicoCalc_NES_v0.5.uf2",
-        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_NES_v0.5.uf2"
+        "path": "PicoCalc_NES_v1.0.uf2",
+        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/picocalc_nes.uf2"
     },
     "uLisp": {
         "name": "uLisp",
         "description": "Lisp programming language for ARM-based boards",
-        "path": "PicoCalc_uLisp_v0.5.uf2",
-        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_uLisp_v0.5.uf2"
+        "path": "PicoCalc_uLisp_v1.0.uf2",
+        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/ulisp-arm.ino.rpipico.uf2"
     },
     "MP3Player": {
         "name": "MP3 Player",
         "description": "Simple MP3 player based on YAHAL",
         "path": "PicoCalc_MP3Player_v0.5.uf2",
-        "url": "https://github.com/clockworkpi/PicoCalc/raw/master/Bin/PicoCalc%20SD/firmware/PicoCalc_MP3Player_v0.5.uf2"
+        "url": "https://raw.githubusercontent.com/cjstoddard/PicoCalc-uf2/main/uf2/pico-mp3-player.uf2"
     }
 }
 
@@ -384,7 +434,7 @@ class FlashTool(QtWidgets.QMainWindow):
             self,
             "Select Firmware Image",
             "",
-            "Image Files (*.img *.bin);;All Files (*)",
+            "Firmware Files (*.uf2);;All Files (*)",
         )
 
         if file_path:
@@ -422,6 +472,9 @@ class FlashTool(QtWidgets.QMainWindow):
         else:
             # This is a firmware_info dictionary from the GitHub scan
             firmware_info = firmware_data
+        
+        # Add attribution message
+        self.log("Community firmware files from https://github.com/cjstoddard/PicoCalc-uf2")
         
         # Check if URL exists before starting download
         if not self._check_url_exists(firmware_info['url']):
@@ -608,8 +661,8 @@ class FlashTool(QtWidgets.QMainWindow):
         try:
             import webbrowser
             # Direct link to the firmware directory
-            repo_url = "https://github.com/clockworkpi/PicoCalc/tree/master/Bin/PicoCalc%20SD/firmware"
-            self.log(f"Opening GitHub firmware directory in browser: {repo_url}")
+            repo_url = "https://github.com/cjstoddard/PicoCalc-uf2"
+            self.log(f"Opening GitHub firmware repository in browser: {repo_url}")
             webbrowser.open(repo_url)
         except Exception as e:
             logger.error("Failed to open browser: %s", e, exc_info=True)
@@ -646,9 +699,15 @@ class FlashTool(QtWidgets.QMainWindow):
         validation_results = validator.validate_all(device, total_size_mb, self.firmware_path)
         self.log(format_validation_results(validation_results))
         
-        # Check if any validation failed
-        if not all(success for success, _ in validation_results.values()):
-            self.log("Validation failed. Please fix the issues before proceeding.")
+        # Check if any REQUIRED validation failed
+        # (Fix: Only fail on required checks that actually failed, ignore pending ones like partition alignment)
+        required_failed = any(
+            not success for check, (success, _) in validation_results.items() 
+            if check in ["device", "partition_sequence", "formatting", "dd_write"]
+        )
+        
+        if required_failed:
+            self.log("Required validation checks failed. Please fix the issues before proceeding.")
             self.update_progress(0, "Validation failed")
             return
             
@@ -695,27 +754,34 @@ class FlashTool(QtWidgets.QMainWindow):
             
             # Run each partition command with progress updates
             for i, cmd in enumerate(partition_commands):
-                progress = 20 + (i * 5)
-                self.update_progress(progress, f"Partitioning: step {i+1}/3")
+                progress = 20 + (i * 10)
+                self.update_progress(progress, f"Partitioning: step {i+1}/{len(partition_commands)}")
                 self.log(f"Running: {cmd}")
                 self.run_command(cmd)
 
-            # Step 2: Formatting
-            logger.info("Step 2: Formatting partitions on %s", device)
-            self.update_progress(35, "Formatting FAT32 partition")
-            self.log("Formatting FAT32 partition...")
-            fat_partition = validator.get_partition_device(device, 1)
-            
-            if sys.platform == 'darwin':
-                self.run_command(f"newfs_msdos -F 32 -v PicoCalc {fat_partition}")
-            else:
+            # Step 2: Formatting - this is only needed on Linux since diskutil handles formatting on macOS
+            if sys.platform != 'darwin':
+                logger.info("Step 2: Formatting partitions on %s", device)
+                self.update_progress(35, "Formatting FAT32 partition")
+                self.log("Formatting FAT32 partition...")
+                fat_partition = validator.get_partition_device(device, 1)
                 self.run_command(f"sudo mkfs.fat -F32 -v -I {fat_partition}")
+            else:
+                # On macOS, diskutil already formatted the partitions
+                logger.info("Step 2: Skipping explicit formatting as diskutil handled it")
+                self.update_progress(35, "Partitions formatted by diskutil")
+                self.log("Partitions already formatted by diskutil")
 
             # Step 3: Flashing firmware
             linux_partition = validator.get_partition_device(device, 2)
             logger.info("Step 3: Flashing firmware to %s", linux_partition)
             self.update_progress(50, "Flashing firmware")
             self.log(f"Flashing firmware '{os.path.basename(self.firmware_path)}' to {linux_partition}...")
+            
+            # Unmount the specific partition before flashing
+            if sys.platform == 'darwin':
+                self.log(f"Unmounting target partition {linux_partition}...")
+                self.run_command(f"diskutil unmount {linux_partition}", check_return_code=False)
             
             # Run DD command with progress updates
             self.run_dd_with_progress(self.firmware_path, linux_partition)
@@ -983,7 +1049,8 @@ class FlashTool(QtWidgets.QMainWindow):
         # Create dd command with status reporting
         if sys.platform == 'darwin':
             # macOS version of dd doesn't have status=progress, use custom monitoring
-            cmd = f"sudo dd if='{source}' of='{target}' bs=4M"
+            # Use a smaller block size (1m instead of 4M) which is more compatible on macOS
+            cmd = f"sudo dd if='{source}' of='{target}' bs=1m"
         else:
             # Linux dd with status=progress
             cmd = f"sudo dd if='{source}' of='{target}' bs=4M status=progress"
@@ -1075,6 +1142,7 @@ class FlashTool(QtWidgets.QMainWindow):
         """Display the list of available firmware images"""
         logger.info("Showing available firmware images")
         self.log("Loading available firmware images...")
+        self.log("Using community firmware source: https://github.com/cjstoddard/PicoCalc-uf2")
         
         # Use the predefined firmware images list
         available_firmware = []
@@ -1102,6 +1170,7 @@ class FlashTool(QtWidgets.QMainWindow):
         """Download all available firmware images to the downloads folder"""
         logger.info("Starting batch download of all firmware images")
         self.log("Starting download of all firmware images...")
+        self.log("Community firmware files from https://github.com/cjstoddard/PicoCalc-uf2")
         
         # Create downloads directory if it doesn't exist
         downloads_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "downloads")

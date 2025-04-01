@@ -20,23 +20,34 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
-venv/
-env/
-ENV/
-.env
+# PyInstaller
+build/
+dist/
+*.spec
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+
+# OS
 .DS_Store
+Thumbs.db
 
 # Logs
-logs/*
-!logs/.gitkeep
 *.log
+logs/
+
+# Release
+release/
+*.zip
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
 
 # Test files
 .coverage
@@ -70,4 +81,14 @@ var/
 wheels/
 *.egg-info/
 .installed.cfg
-*.egg 
+*.egg
+
+# Firmware files
+*.uf2
+test.txt
+raw-urls/test.txt
+
+# PyInstaller
+build/
+dist/
+*.spec 

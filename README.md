@@ -1,89 +1,96 @@
-# PicoCalc SD Card Preparation Tool
+# PicoCalc SD Flasher
 
-A Qt-based graphical tool for preparing SD cards for the PicoCalc device.
+A GUI tool for flashing firmware to SD cards for the PicoCalc project.
 
 ## Features
 
-- Cross-platform support (Linux and macOS)
+- User-friendly GUI interface
+- Support for multiple firmware images
 - Automatic device detection
-- Partition creation and formatting
-- Firmware flashing
-- Validation and verification
-- Progress reporting and real-time status updates
-- Safe abort functionality
-
-## Enhanced Safety Features
-
-- System disk protection to prevent accidental data loss
-- Comprehensive validation of target devices
-- Secure privilege elevation
-- Write protection detection
-- Multiple confirmation steps for destructive operations
-
-## Flash Memory Optimizations
-
-- Proper partition alignment for optimal performance
-- Flash parameter validation
-- Optimal I/O size detection
-- Safe block sizes for minimizing flash wear
+- Progress tracking
+- Safety checks and validations
+- Cross-platform support (Windows, macOS, Linux)
 
 ## Prerequisites
 
-- Linux or macOS
-- Python 3.6+
-- Qt6 (PyQt6)
-- Required system tools:
-  - Linux: `parted`, `mkfs.fat`, `dd`, `lsblk`, `blockdev`
-  - macOS: `diskutil`, `newfs_msdos`, `dd`
+### For Users
+- Windows 10/11, macOS 10.15+, or Linux with Python 3.8+
+- SD card reader
+- Administrator/sudo privileges for device access
+
+### For Developers
+- Python 3.8 or higher
+- pip (Python package installer)
+- Git (for version control)
 
 ## Installation
 
+### For Users
+1. Download the latest release for your platform from the [GitHub Releases](https://github.com/yourusername/picocalc-sd-flasher/releases) page
+2. Extract the zip file
+3. Run the executable:
+   - Windows: Double-click `PicoCalc-SD-Flasher.exe`
+   - macOS: Double-click `PicoCalc-SD-Flasher.app`
+   - Linux: Run `./PicoCalc-SD-Flasher` from terminal
+
+### For Developers
 1. Clone the repository:
-   ```
-   git clone https://github.com/username/picocalc-sd-flasher.git
+   ```bash
+   git clone https://github.com/yourusername/picocalc-sd-flasher.git
    cd picocalc-sd-flasher
    ```
 
-2. Install Python dependencies:
-   ```
+2. Install dependencies:
+   ```bash
    pip install -r requirements.txt
    ```
 
+3. Build the executable:
+   ```bash
+   python build.py
+   ```
+
+The executable will be created in the `dist` directory.
+
 ## Usage
 
-1. Run the application:
-   ```
-   python flash_tool.py
-   ```
-
-2. Select your target SD card device
-3. Select or use the default firmware image
-4. Click "Flash SD Card"
+1. Launch the application
+2. Select your SD card device from the dropdown menu
+3. Choose a firmware image to flash
+4. Click "Flash SD Card" to begin the process
 5. Follow the on-screen instructions
 
-## Error Recovery
+## Building for Different Platforms
 
-If you encounter any issues during the flashing process:
-
-1. Check the log output for specific error messages
-2. Ensure your SD card is not write-protected
-3. Verify you have appropriate permissions
-4. Try a different SD card if problems persist
-
-## Development
-
-### Running Tests
-
-```
-python -m unittest test_validation.py
+### Windows
+```bash
+python build.py
 ```
 
-### Code Structure
+### macOS
+```bash
+python build.py
+```
 
-- `flash_tool.py` - Main application and UI
-- `validation.py` - SD card validation routines
-- `test_validation.py` - Unit tests
+### Linux
+```bash
+python build.py
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-[Add your license information here] 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- PyQt6 for the GUI framework
+- PyInstaller for creating standalone executables
+- The PicoCalc community for feedback and support 

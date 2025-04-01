@@ -151,12 +151,23 @@ class SDCardValidator:
 
     def validate_partition_sequence(self, device: str, total_size_mb: int) -> List[str]:
         """Generate and validate the exact partition sequence"""
+        # Calculate partition sizes
         fat_size = total_size_mb - 32
-        return [
-            f"parted -s {device} mklabel msdos",
-            f"parted -s {device} mkpart primary fat32 1MiB {fat_size}MiB",
-            f"parted -s {device} mkpart primary {fat_size}MiB 100%"
-        ]
+        
+        # Use platform-specific commands
+        if sys.platform == 'darwin':  # macOS
+            # Use diskutil instead of parted for macOS
+            # The correct command is "partitionDisk" not "splitDisk"
+            return [
+                f"diskutil eraseDisk FAT32 PICOCALC MBRFormat {device}",
+                f"diskutil partitionDisk {device} 2 MBR FAT32 MAIN {fat_size}M MS-DOS FIRMWARE 32M"
+            ]
+        else:  # Linux
+            return [
+                f"parted -s {device} mklabel msdos",
+                f"parted -s {device} mkpart primary fat32 1MiB {fat_size}MiB",
+                f"parted -s {device} mkpart primary {fat_size}MiB 100%"
+            ]
 
     def validate_formatting_flags(self, partition: str, fs_type: str) -> Tuple[bool, str]:
         """Validate formatting flags for each partition"""
@@ -552,21 +563,32 @@ class SDCardValidator:
         partition_result = (False, "Partition sequence not validated")
         try:
             commands = self.validate_partition_sequence(device, total_size_mb)
-            if len(commands) != 3:
-                partition_result = (False, "Invalid partition command count generated")
-            elif not commands[0].endswith("mklabel msdos"):
-                partition_result = (False, "First command must create MSDOS label")
-            elif "mkpart primary fat32" not in commands[1]:
-                partition_result = (False, "Second command must create FAT32 partition")
-            elif "mkpart primary" not in commands[2]:
-                partition_result = (False, "Third command must create Linux partition")
-            else:
-                # Calculate correct size
-                fat_size = total_size_mb - 32
-                if f"{fat_size}MiB" not in commands[1]:
-                    partition_result = (False, f"FAT32 partition must end at {fat_size}MiB")
+            if sys.platform == 'darwin':  # macOS
+                if len(commands) != 2:
+                    partition_result = (False, "Invalid command count for macOS diskutil")
+                elif "diskutil eraseDisk" not in commands[0]:
+                    partition_result = (False, "First command must erase the disk with diskutil")
+                elif "diskutil partitionDisk" not in commands[1]:
+                    partition_result = (False, "Second command must create partitions with diskutil")
                 else:
+                    # All commands look valid
                     partition_result = (True, "Partition sequence validated")
+            else:  # Linux
+                if len(commands) != 3:
+                    partition_result = (False, "Invalid partition command count generated")
+                elif not commands[0].endswith("mklabel msdos"):
+                    partition_result = (False, "First command must create MSDOS label")
+                elif "mkpart primary fat32" not in commands[1]:
+                    partition_result = (False, "Second command must create FAT32 partition")
+                elif "mkpart primary" not in commands[2]:
+                    partition_result = (False, "Third command must create Linux partition")
+                else:
+                    # Calculate correct size
+                    fat_size = total_size_mb - 32
+                    if f"{fat_size}MiB" not in commands[1]:
+                        partition_result = (False, f"FAT32 partition must end at {fat_size}MiB")
+                    else:
+                        partition_result = (True, "Partition sequence validated")
         except Exception as e:
             partition_result = (False, f"Failed to validate partition sequence: {str(e)}")
         
@@ -599,8 +621,80 @@ class SDCardValidator:
 
 def format_validation_results(results: Dict[str, Tuple[bool, str]]) -> str:
     """Format validation results for display"""
-    output = []
+    output = ["=== Pre-Flash Validation Results ===\n"]
+    
+    # Define check descriptions and categories
+    check_info = {
+        "device": {
+            "title": "Device Selection",
+            "category": "Required"
+        },
+        "partition_sequence": {
+            "title": "Partition Plan",
+            "category": "Required"
+        },
+        "formatting": {
+            "title": "Format Tools",
+            "category": "Required"
+        },
+        "alignment": {
+            "title": "Partition Alignment",
+            "category": "Pending",
+            "pending_ok": True
+        },
+        "flash_parameters": {
+            "title": "Flash Parameters",
+            "category": "Optional"
+        },
+        "dd_write": {
+            "title": "Write Access",
+            "category": "Required"
+        },
+        "checksum": {
+            "title": "Data Verification",
+            "category": "Post-Flash",
+            "pending_ok": True
+        }
+    }
+    
+    # Group results by category
+    categories = {"Required": [], "Optional": [], "Pending": [], "Post-Flash": []}
+    
     for check, (success, message) in results.items():
-        status = "✓" if success else "✗"
-        output.append(f"{status} {check}: {message}")
+        info = check_info.get(check, {"title": check, "category": "Optional"})
+        
+        # Determine status symbol and color indicator
+        if info.get("pending_ok") and "not performed" in message.lower():
+            status = "⏳"  # Pending
+            status_msg = "PENDING"
+        else:
+            status = "✓" if success else "✗"
+            status_msg = "PASS" if success else "FAIL"
+            
+        # Format the result line with title and detailed message
+        line = f"{status} {info['title']}: [{status_msg}]\n"
+        line += f"   → {message}"
+        
+        # Add to appropriate category
+        categories[info["category"]].append(line)
+    
+    # Add each category to output
+    for category in ["Required", "Optional", "Pending", "Post-Flash"]:
+        if categories[category]:
+            output.append(f"\n{category} Checks:")
+            output.extend(categories[category])
+    
+    # Add summary
+    required_failed = any(not success for check, (success, _) in results.items() 
+                        if check_info.get(check, {}).get("category") == "Required" 
+                        and not check_info.get(check, {}).get("pending_ok", False))
+    
+    output.append("\n=== Summary ===")
+    if required_failed:
+        output.append("❌ Some required checks failed. Please fix these issues before proceeding.")
+    else:
+        output.append("✅ All required checks passed. You may proceed with flashing.")
+        if any(not success for success, _ in results.values()):
+            output.append("   Note: Some non-critical checks are pending or will be performed after flashing.")
+    
     return "\n".join(output) 
