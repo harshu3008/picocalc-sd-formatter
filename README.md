@@ -1,6 +1,18 @@
 # PicoCalc SD Card Formatter
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/yourusername/picocalc-sd-flasher/releases)
+[![Powered by Cursor](https://img.shields.io/badge/Powered%20by-Cursor-blue?style=flat&logo=cursor&logoColor=white)](https://cursor.sh)
+
 A GUI tool for formatting SD cards for use with the PicoCalc device. This tool creates the correct partition layout required by the PicoCalc operating system.
+
+## AI Assistance Notice
+
+This project was developed with the assistance of Cursor IDE's AI capabilities. The code has been:
+- Generated and refined using AI pair programming
+- Validated for functionality and security
+- Reviewed and tested by human developers
 
 ## Features
 
@@ -104,6 +116,16 @@ python build.py
 4. Push to the branch
 5. Create a Pull Request
 
+## Disclaimer
+
+This software:
+- May contain code snippets or patterns that were AI-generated
+- Could include uncredited code from public sources
+- Is provided "as is" without warranty of any kind
+- Should be reviewed for security and functionality before use in production environments
+
+Please review the code thoroughly and use at your own discretion. While efforts have been made to ensure quality and security, AI-generated code should always be validated for your specific use case.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -112,4 +134,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - PyQt6 for the GUI framework
 - PyInstaller for creating standalone executables
-- The PicoCalc community for feedback and support 
+- The PicoCalc community for feedback and support
+- [Cursor](https://cursor.sh) for AI-assisted development
+- All unidentified code sources that may have contributed to this project 
