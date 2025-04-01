@@ -141,6 +141,13 @@ python build.py
 python build.py
 ```
 
+Note for macOS users: The application is signed with an ad hoc signature for basic security. When first running the app:
+1. Right-click (or Control-click) the app and select "Open"
+2. Click "Open" in the security dialog that appears
+3. After the first run, you can open the app normally
+
+The ad hoc signature provides a basic level of code signing without requiring an Apple Developer account. While you'll still see Gatekeeper warnings, this approach allows you to run the application while maintaining a basic level of security validation.
+
 ### Linux
 
 ```bash

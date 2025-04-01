@@ -197,6 +197,32 @@ def create_release_package():
     
     print("Release package creation complete.")
 
+def ad_hoc_sign_macos_app(app_path):
+    """Sign the macOS application with an ad hoc signature"""
+    if sys.platform != 'darwin':
+        return
+        
+    print("Starting ad hoc code signing process...")
+    try:
+        # Sign the application with ad hoc signature
+        sign_cmd = [
+            'codesign',
+            '--sign', '-',  # Use '-' for ad hoc signing
+            '--deep',
+            '--force',
+            app_path
+        ]
+        subprocess.run(sign_cmd, check=True)
+        print("Application signed successfully with ad hoc signature")
+        print("\nNOTE: Users will still see Gatekeeper warnings when running the app.")
+        print("They can bypass this by:")
+        print("1. Right-clicking the app and selecting 'Open'")
+        print("2. Clicking 'Open' in the security dialog that appears")
+    except subprocess.CalledProcessError as e:
+        print(f"Error during signing process: {e}")
+    except Exception as e:
+        print(f"Unexpected error during signing: {e}")
+
 def main():
     """Main build process"""
     try:
@@ -210,6 +236,13 @@ def main():
         clean_build()
         build_executable()
         create_version_file()
+        
+        # Sign with ad hoc signature if on macOS
+        if sys.platform == 'darwin':
+            app_path = 'dist/PicoCalc-SD-Formatter.app'
+            if os.path.exists(app_path):
+                ad_hoc_sign_macos_app(app_path)
+        
         create_release_package()
         
         print("\nBuild process completed successfully!")
