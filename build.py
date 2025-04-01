@@ -6,6 +6,10 @@ import shutil
 import subprocess
 from datetime import datetime
 
+class PyInstallerError(Exception):
+    """Custom exception for PyInstaller build failures"""
+    pass
+
 def clean_build():
     """Clean previous build artifacts"""
     print("Cleaning previous build artifacts...")
@@ -88,7 +92,7 @@ def build_executable():
         print(result.stdout)
         print("STDERR:")
         print(result.stderr)
-        raise Exception("PyInstaller build failed")
+        raise PyInstallerError(f"PyInstaller build failed with return code {result.returncode}")
     else:
         print("PyInstaller completed successfully")
     
