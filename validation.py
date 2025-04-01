@@ -218,7 +218,7 @@ class SDCardValidator:
         return True, "Formatting flags validation passed"
 
     def validate_partition_alignment(self, device: str) -> Tuple[bool, str]:
-        """Validate 32MB partition alignment"""
+        """Validate 32MB partition alignment for optimal flash performance"""
         try:
             partition_device = self.get_partition_device(device, 2)
             
@@ -238,7 +238,7 @@ class SDCardValidator:
                 alignment_bytes = 32 * 1024 * 1024
                 
                 if offset_bytes % alignment_bytes != 0:
-                    return False, f"Partition not aligned to 32MB boundary (offset: {offset_bytes})"
+                    return False, f"Partition not aligned to 32MB boundary (offset: {offset_bytes}). This can cause poor flash performance and wear."
             else:  # Linux
                 # Use better sectors calculation
                 result = subprocess.run(['fdisk', '-l', device], capture_output=True, text=True, check=True)
@@ -266,7 +266,7 @@ class SDCardValidator:
                                 if part.isdigit() and i > 0:
                                     start_sector = int(part)
                                     if start_sector % alignment_sectors != 0:
-                                        return False, f"Second partition not aligned to 32MB boundary (sector: {start_sector}, alignment: {alignment_sectors})"
+                                        return False, f"Second partition not aligned to 32MB boundary (sector: {start_sector}, alignment: {alignment_sectors}). This can cause poor flash performance and wear."
                                     break
                         except (IndexError, ValueError) as e:
                             return False, f"Failed to parse partition info: {str(e)}"
@@ -274,7 +274,7 @@ class SDCardValidator:
             # Check partition size is exactly 32MB
             size_mb = self.get_partition_size_mb(self.get_partition_device(device, 2))
             if abs(size_mb - 32) > 1:  # Allow 1MB tolerance
-                return False, f"Linux partition size is {size_mb:.2f}MB, expected 32MB"
+                return False, f"Linux partition size is {size_mb:.2f}MB, expected 32MB. Exact size is critical for flash performance."
                 
             return True, "Partition alignment validation passed"
         except subprocess.CalledProcessError as e:
@@ -495,6 +495,54 @@ class SDCardValidator:
             logger.error(f"Failed to calculate device checksum: {str(e)}")
             return "calculation_failed"
 
+    def validate_flash_parameters(self, device: str) -> Tuple[bool, str]:
+        """Validate flash memory parameters for optimal performance"""
+        try:
+            # Check if we can get flash memory information
+            if sys.platform.startswith('linux'):  # Linux only
+                # Check if the device supports flash memory info
+                if '/dev/mmcblk' in device:
+                    # Try to get flash memory parameters from sysfs
+                    card_device = device.split('p')[0] if 'p' in device else device
+                    
+                    # Check optimal erase block size
+                    try:
+                        with open(f"/sys/block/{os.path.basename(card_device)}/queue/optimal_io_size", "r") as f:
+                            optimal_io_size = int(f.read().strip())
+                            if optimal_io_size > 0 and optimal_io_size % (4 * 1024 * 1024) != 0:
+                                logger.warning(f"Optimal I/O size {optimal_io_size} is not a multiple of 4MB")
+                                return False, f"Device optimal I/O size ({optimal_io_size} bytes) is not a multiple of 4MB, which may cause suboptimal performance"
+                    except (FileNotFoundError, ValueError):
+                        logger.debug("Could not determine optimal I/O size for flash device")
+                    
+                    # Check minimum I/O size
+                    try:
+                        with open(f"/sys/block/{os.path.basename(card_device)}/queue/minimum_io_size", "r") as f:
+                            minimum_io_size = int(f.read().strip())
+                            if minimum_io_size > 512:
+                                logger.info(f"Device has minimum I/O size of {minimum_io_size} bytes")
+                    except (FileNotFoundError, ValueError):
+                        logger.debug("Could not determine minimum I/O size for flash device")
+                    
+                    # Check for additional SD card specific info if available
+                    try:
+                        with open(f"/sys/block/{os.path.basename(card_device)}/device/name", "r") as f:
+                            card_name = f.read().strip()
+                            logger.info(f"SD card name: {card_name}")
+                    except FileNotFoundError:
+                        pass
+                    
+                    return True, "Flash memory parameters appear to be suitable for optimal performance"
+            
+            # For macOS or non-mmcblk devices, we can't get detailed flash info
+            # Just return success since we can't validate flash parameters directly
+            return True, "Flash memory parameter validation not applicable on this device"
+            
+        except Exception as e:
+            logger.error(f"Failed to validate flash parameters: {str(e)}")
+            # Don't fail the overall validation for this; just warn
+            return True, f"Could not validate flash memory parameters: {str(e)}"
+        
     def validate_all(self, device: str, total_size_mb: int, firmware_path: str) -> Dict[str, Tuple[bool, str]]:
         """Run all validations and return results"""
         # First check device
@@ -528,6 +576,9 @@ class SDCardValidator:
         # Check alignment
         alignment_result = self.validate_partition_alignment(device)
         
+        # Check flash memory parameters (new)
+        flash_result = self.validate_flash_parameters(device)
+        
         # Validate DD write
         dd_result = self.validate_dd_write(firmware_path, device, 2)
         
@@ -540,6 +591,7 @@ class SDCardValidator:
             "partition_sequence": partition_result,
             "formatting": formatting_result,
             "alignment": alignment_result,
+            "flash_parameters": flash_result,
             "dd_write": dd_result,
             "checksum": checksum_result  # Added checksum validation result
         }

@@ -462,5 +462,80 @@ Device     Boot Start       End   Sectors  Size Id Type
                 self.assertFalse(success, "Should reject system disk")
                 self.assertIn("system disk", message, "Error should mention system disk")
 
+    @patch('builtins.open')
+    def test_flash_parameter_validation(self, mock_open):
+        """Test flash memory parameter validation"""
+        # Create mock file handles for different sysfs files
+        mock_optimal_io = MagicMock()
+        mock_optimal_io.__enter__.return_value.read.return_value = "4194304\n"  # 4MB
+        
+        mock_min_io = MagicMock()
+        mock_min_io.__enter__.return_value.read.return_value = "512\n"
+        
+        mock_card_name = MagicMock()
+        mock_card_name.__enter__.return_value.read.return_value = "SD Card\n"
+        
+        mock_bad_io = MagicMock()
+        mock_bad_io.__enter__.return_value.read.return_value = "3145728\n"  # 3MB (not aligned to 4MB)
+        
+        # Configure the open mock based on path
+        def open_side_effect(path, *args, **kwargs):
+            if "optimal_io_size" in path:
+                if "bad_device" in path:
+                    return mock_bad_io
+                return mock_optimal_io
+            elif "minimum_io_size" in path:
+                return mock_min_io
+            elif "name" in path:
+                return mock_card_name
+            raise FileNotFoundError(f"Mock file not found: {path}")
+            
+        mock_open.side_effect = open_side_effect
+        
+        # Test validation on Linux only
+        if sys.platform.startswith('linux'):
+            # Test with good device
+            device = "/dev/mmcblk0"
+            success, message = self.validator.validate_flash_parameters(device)
+            self.assertTrue(success, "Should pass with well-aligned I/O size")
+            
+            # Test with bad device
+            device = "/dev/bad_device"
+            success, message = self.validator.validate_flash_parameters(device)
+            self.assertFalse(success, "Should fail with non-4MB-aligned I/O size")
+            self.assertIn("not a multiple of 4MB", message)
+        
+        # Test on macOS - should always pass since we can't check flash params
+        if sys.platform == "darwin":
+            device = "/dev/disk1"
+            success, message = self.validator.validate_flash_parameters(device)
+            self.assertTrue(success, "Always passes on macOS")
+            self.assertIn("not applicable", message)
+            
+        # Test with non-MMC device on Linux
+        if sys.platform.startswith('linux'):
+            device = "/dev/sdb"
+            success, message = self.validator.validate_flash_parameters(device)
+            self.assertTrue(success, "Should pass for non-MMC device")
+        
+        # Test full validation with flash parameters
+        with patch.object(SDCardValidator, 'validate_flash_parameters') as mock_flash:
+            mock_flash.return_value = (False, "Flash parameters not optimal")
+            
+            # Also patch all the other validation methods
+            with patch.object(SDCardValidator, 'validate_device', return_value=(True, "")) as mock_device:
+                with patch.object(SDCardValidator, 'validate_formatting_flags', return_value=(True, "")) as mock_format:
+                    with patch.object(SDCardValidator, 'validate_partition_alignment', return_value=(True, "")) as mock_align:
+                        with patch.object(SDCardValidator, 'validate_dd_write', return_value=(True, "")) as mock_dd:
+                            device = "/dev/mmcblk0" if sys.platform.startswith('linux') else "/dev/disk1"
+                            total_size_mb = 64 * 1024  # 64GB
+                            firmware_path = "test_fuzix.img"
+                            
+                            results = self.validator.validate_all(device, total_size_mb, firmware_path)
+                            
+                            # Check that flash parameters validation is included
+                            self.assertIn("flash_parameters", results)
+                            self.assertEqual(results["flash_parameters"], (False, "Flash parameters not optimal"))
+
 if __name__ == '__main__':
     unittest.main() 
